@@ -89,6 +89,7 @@ public class Sa2SetupActivity extends Activity {
     private static final String GAME_EXE = "sonic2app.exe";
     private static final int PICK_ZIP = 1;
     private static final String PROJECT = "https://github.com/kittycache9/OpenSA2";
+    private static final String STEAM = "https://store.steampowered.com/app/213610/Sonic_Adventure_2/";
     private static final String ISSUES = PROJECT + "/issues";
     /** Who has contributed to OpenSA2 besides its maker, named under the footer's maker line. */
     private static final String[] CONTRIBUTORS = {"heyjoeway"};
@@ -827,8 +828,10 @@ public class Sa2SetupActivity extends Activity {
     }
 
     /** The footer: who makes the app and who has contributed to it (a tap opens GitHub's contributors
-     * page), buttons to its GitHub page (source, releases and issues) and to tell a friend about it
-     * (the releases page, through the system's share sheet), and that it is not SEGA's. */
+     * page), buttons to its GitHub page (source, releases and issues), to check for a newer release (the
+     * releases page; the app asks for no internet permission and compares nothing itself), to the
+     * game's Steam page, and to tell a friend about it (the releases page, through the system's share
+     * sheet), and that it is not SEGA's. */
     private LinearLayout about() {
         LinearLayout f = new LinearLayout(this);
         f.setOrientation(LinearLayout.VERTICAL);
@@ -894,13 +897,9 @@ public class Sa2SetupActivity extends Activity {
             linksGap = dp(2);        // and the pills keep 14 dp under the text
         }
 
-        Button github = pill("View on GitHub", v -> {
-            try {
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT)));
-            } catch (android.content.ActivityNotFoundException e) {
-                Toast.makeText(this, PROJECT, Toast.LENGTH_LONG).show();
-            }
-        });
+        Button github = pill("View on GitHub", v -> openLink(PROJECT));
+        Button updates = pill("Check for updates", v -> openLink(PROJECT + "/releases"));
+        Button steam = pill("Get the game on Steam", v -> openLink(STEAM));
         Button tell = pill("Share OpenSA2", v -> {
             Intent send = new Intent(Intent.ACTION_SEND);
             send.setType("text/plain");
@@ -926,6 +925,18 @@ public class Sa2SetupActivity extends Activity {
         lp.topMargin = linksGap;
         f.addView(links, lp);
 
+        LinearLayout more = new LinearLayout(this);
+        more.setOrientation(LinearLayout.HORIZONTAL);
+        more.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout.LayoutParams gap2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                                                                       ViewGroup.LayoutParams.WRAP_CONTENT);
+        gap2.rightMargin = dp(8);
+        more.addView(updates, gap2);
+        more.addView(steam);
+        lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(8);
+        f.addView(more, lp);
+
         TextView legal = new TextView(this);
         legal.setText("Not affiliated with SEGA or Sonic Team.");
         legal.setTextColor(Color.rgb(0x66, 0x72, 0x8D));
@@ -935,6 +946,15 @@ public class Sa2SetupActivity extends Activity {
         lp.topMargin = dp(12);
         f.addView(legal, lp);
         return f;
+    }
+
+    /** Opens `url` in the browser (or the Steam app for a Steam link); with none installed, shows the address. */
+    private void openLink(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(this, url, Toast.LENGTH_LONG).show();
+        }
     }
 
     /** A small rounded, outlined button for the footer's links. */

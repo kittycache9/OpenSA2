@@ -148,6 +148,17 @@ def test_installer_and_session_agree_on_the_app_folders():
             assert f'setenv("{var}", a.files.c_str(), 1);' in native
 
 
+def test_the_setup_footer_links_to_releases_and_steam_and_the_app_asks_for_no_internet():
+    """"Check for updates" opens the releases page and "Get the game on Steam" opens the game's Steam
+    page (app 213610, the one the installer's own Steam checks use). Both open another app, so the
+    manifest still holds no INTERNET permission."""
+    java = (ROOT / "host/android/java/com/sa2recomp/app/Sa2SetupActivity.java").read_text()
+    assert 'STEAM = "https://store.steampowered.com/app/213610/Sonic_Adventure_2/"' in java
+    assert 'pill("Check for updates", v -> openLink(PROJECT + "/releases"))' in java
+    assert 'pill("Get the game on Steam", v -> openLink(STEAM))' in java
+    assert "android.permission.INTERNET" not in (ROOT / "host/android/AndroidManifest.xml").read_text()
+
+
 # ------------------------------------------------------------------ the session's CPU placement
 
 PLAN_DRIVER = r"""
