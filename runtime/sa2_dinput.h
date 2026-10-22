@@ -308,8 +308,9 @@
  * reports (no guide button, nothing at 0x0400 or 0x0800). End of file lets
  * every slot go, as it lets every key up. A connected byte other than 0 or 1
  * stops the run, as another magic does: the bytes are out of step. Gamepads are
- * not logged (SA2_INPUT_DI_LOG replays the keyboard alone); the log's closing
- * line counts their records when there were any.
+ * not in SA2_INPUT_DI_LOG (it replays the keyboard alone; SA2_INPUT_PAD_LOG,
+ * "Gamepad replay" below, holds them); its closing line counts their records
+ * when there were any.
  *
  *   SA2_INPUT_PAD_WAIT_MS=ms the first XInput call's wait, 0 to 60000, read at
  *                            configuration with a FIFO source (anything but a
@@ -318,6 +319,54 @@
  *   SA2_INPUT_PAD_HOTPLUG=0|1 pads that connect later, 1 when unset; read at
  *                            configuration with a FIFO source (anything else is
  *                            refused then) and ignored without one.
+ *
+ * Gamepad replay
+ * --------------
+ * SA2_INPUT_DI_LOG replays the keyboard alone, so a session whose player drove a
+ * pad (Android's touch overlay is slot 0's pad from the start) did not replay.
+ * The pad answers are a function of the slots' states and the calls the game
+ * makes, which the guest decides; what came from outside is only which state
+ * each slot held at each XInput call. So the pad log keys every change of a
+ * slot's state to the ordinal of the XInput call that first answered from it
+ * (every call that reaches sa2_dinput_live_pad, from 0: the game's own count of
+ * pad questions, as a poll index is its count of keyboard answers), and a
+ * replay applies each change before answering that call. The stand-ins of
+ * "Pads that connect later" are not logged: they follow from the calls and from
+ * the mode line, which says whether that session answered them.
+ *
+ *   SA2_INPUT_PAD_LOG=path  with a FIFO source, or with SA2_INPUT_PAD_SCRIPT: one
+ *                            line per change of a slot's state, written and
+ *                            flushed at the XInput call that first answers from
+ *                            it, "<call> <polls> <slot> <connected> <buttons>
+ *                            <lt> <rt> <lx> <ly> <rx> <ry>" (call the XInput
+ *                            call's ordinal, polls the keyboard polls answered
+ *                            before it, buttons 0x and four hex digits, the rest
+ *                            decimal, sticks signed), after one line "mode
+ *                            <hotplug> <stand_ins>" at the first XInput call
+ *                            (SA2_INPUT_PAD_HOTPLUG as read, and whether that
+ *                            session's scan stands in for absent pads); '#'
+ *                            lines are comments, the last the counters at exit.
+ *                            Created, or refused when not empty, as
+ *                            SA2_INPUT_DI_LOG is. A change that no XInput call
+ *                            answered from before the run ended is not written.
+ *   SA2_INPUT_PAD_SCRIPT=path a pad log, read whole at configuration, with
+ *                            SA2_INPUT_DI_SCRIPT only (a FIFO carries its own
+ *                            pads): XInput call n first applies every line of
+ *                            call n, in order, then answers as a FIFO session
+ *                            would, stand-ins included when the mode line says
+ *                            so (no mode line: none). A line whose polls differ
+ *                            from the replay's count at that call is applied
+ *                            and counted (pad_script_desyncs; the first is said
+ *                            on stderr): the replay has left the session's
+ *                            path. Lines out of call order, or anything that
+ *                            does not parse, are refused at configuration,
+ *                            naming the line.
+ *
+ * With neither set nothing of this runs: the FIFO session's answers, counters
+ * and SA2_INPUT_DI_LOG bytes are as before, and a script replay without a pad
+ * script answers every XInput call as before (no pad). A replay of a pad
+ * session needs the guest command line the session ran with
+ * (SA2_GUEST_CMDLINE=-r, "InputWay" above), which the session's records name.
  *
  * Environment
  * -----------
@@ -342,6 +391,8 @@
  *                            replaces the system devices the profile recorded.
  *   SA2_INPUT_DI_SCRIPT, SA2_INPUT_DI_SOURCE, SA2_INPUT_DI_LOG
  *                            the host keyboard, above; all unset by default.
+ *   SA2_INPUT_PAD_LOG, SA2_INPUT_PAD_SCRIPT
+ *                            gamepad replay, above; both unset by default.
  */
 #ifndef SA2_RUNTIME_DINPUT_H
 #define SA2_RUNTIME_DINPUT_H
@@ -551,6 +602,13 @@ typedef struct {
     uint32_t pad_stand_ins;        /* XInput calls answered connected at rest for such a slot */
     uint32_t pad_hidden;           /* rescan calls answered not connected for a connected slot
                                       with no pad object */
+    /* Gamepad replay ("Gamepad replay" above); every one 0 with neither variable set. */
+    uint32_t xi_calls;             /* XInput calls a pad source answered (the next call's ordinal) */
+    uint32_t pad_log_lines;        /* change lines SA2_INPUT_PAD_LOG holds */
+    uint32_t pad_script_lines;     /* SA2_INPUT_PAD_SCRIPT's change lines */
+    uint32_t pad_script_applied;   /* ... applied by the end */
+    uint32_t pad_script_desyncs;   /* ... applied at a call whose keyboard polls differed */
+    uint32_t pad_script_first_desync;  /* the first such line's call */
 } sa2_di_input_stats;
 
 void sa2_dinput_config_from_env(void);

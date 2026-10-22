@@ -569,6 +569,13 @@ typedef struct {
     int32_t  by;
 } di_keyevent;
 
+/* One change of a slot's state ("Gamepad replay" in sa2_dinput.h): a pad log's
+ * line, or one waiting for the XInput call that will answer from it. */
+typedef struct {
+    uint32_t   call, polls, slot;
+    sa2_di_pad v;
+} di_padchange;
+
 static struct {
     int          kind;                 /* IN_* */
     char         path[512];            /* the script or the FIFO */
@@ -597,6 +604,16 @@ static struct {
     int          run_open;             /* log: a run of polls holding the same keys */
     uint32_t     run_first, run_last;
     di_keyset    run_keys;
+    /* Gamepad replay: nothing below is touched with neither variable set. */
+    FILE        *pad_log;              /* SA2_INPUT_PAD_LOG */
+    char         pad_log_path[512];
+    int          pad_mode_logged;      /* its mode line is written */
+    di_padchange *pend;                /* changes no XInput call has answered from yet */
+    uint32_t     npend, pend_room;
+    int          pad_script;           /* SA2_INPUT_PAD_SCRIPT is the pads' source */
+    di_padchange *pad_lines;           /* ... its change lines, in call order */
+    uint32_t     npad_lines, next_pad_line;
+    int          script_later, script_stand_ins;   /* ... its mode line */
     sa2_di_input_stats st;
 } g_in = {.fd = -1};
 static volatile sig_atomic_t g_in_stop;
@@ -842,6 +859,27 @@ static void key_record(const uint8_t *r) {
  * it never reports. */
 #define PAD_BUTTONS_MASK 0xF3FFu
 
+/* A change for SA2_INPUT_PAD_LOG, held until the XInput call that answers from
+ * it (pad_log_flush). Out of memory, the log would be wrong from here on: said
+ * once on stderr and the log closed with a note, never a wrong line. */
+static void pad_pend(uint32_t s, const sa2_di_pad *v) {
+    if (g_in.npend == g_in.pend_room) {
+        const uint32_t room = g_in.pend_room ? g_in.pend_room * 2u : 16u;
+        di_padchange *p = (di_padchange *)realloc(g_in.pend, room * sizeof *p);
+        if (!p) {
+            fprintf(stderr, "sa2 dinput: SA2_INPUT_PAD_LOG: no memory for %u changes; the log ends "
+                    "here (%s)\n", room, g_in.pad_log_path);
+            fprintf(g_in.pad_log, "# ended early: no memory for the changes\n");
+            fclose(g_in.pad_log);
+            g_in.pad_log = NULL;
+            return;
+        }
+        g_in.pend = p;
+        g_in.pend_room = room;
+    }
+    g_in.pend[g_in.npend++] = (di_padchange){0, 0, s, *v};
+}
+
 /* A slot's state, its packet number one more when it changed. */
 static void pad_set(uint32_t s, const sa2_di_pad *v) {
     sa2_di_pad *p = &g_in.pad[s];
@@ -852,6 +890,7 @@ static void pad_set(uint32_t s, const sa2_di_pad *v) {
     *p = *v;
     p->packet = packet;
     g_in.st.pad_changes++;
+    if (g_in.pad_log) pad_pend(s, p);
 }
 
 /* A whole gamepad record: every slot's state. A connected byte other than 0 or
@@ -992,9 +1031,27 @@ static int log_poll(uint32_t poll, const di_keyset *k, uint32_t held) {
     return ok;
 }
 
+/* SA2_INPUT_PAD_LOG at exit: the counters as a comment, which a script reader
+ * skips. Changes still pending were never answered from, so they are counted
+ * and not written: a replay would never apply them. */
+static void pad_log_exit(void) {
+    if (!g_in.pad_log) return;
+    const sa2_di_input_stats *s = &g_in.st;
+    fprintf(g_in.pad_log, "# closed at exit: %u XInput calls, %u change lines, %u changes no call "
+            "answered from", s->xi_calls, s->pad_log_lines, g_in.npend);
+    if (g_in.pad_script)
+        fprintf(g_in.pad_log, "; pad script of %u lines, %u applied, %u at a call whose keyboard "
+                "polls differed", s->pad_script_lines, s->pad_script_applied, s->pad_script_desyncs);
+    fputc('\n', g_in.pad_log);
+    if (fclose(g_in.pad_log))
+        fprintf(stderr, "sa2 dinput: SA2_INPUT_PAD_LOG: closing failed (%s)\n", g_in.pad_log_path);
+    g_in.pad_log = NULL;
+}
+
 /* At exit: the run still open, then the counters as a comment, which a
  * script reader skips. The guest is unmapped by now; nothing here reads it. */
 static void input_exit(void) {
+    pad_log_exit();
     if (!g_in.log) return;
     if (g_in.run_open && !log_line(g_in.run_first, g_in.run_last, &g_in.run_keys))
         fprintf(stderr, "sa2 dinput: SA2_INPUT_DI_LOG: the last line could not be written (%s)\n",
@@ -1012,8 +1069,10 @@ static void input_exit(void) {
     /* Gamepads only when there were any, so a keyboard session's line is as it was. */
     if (s->pad_records)
         fprintf(g_in.log, "; %u gamepad records, last seq %u, %u seq gaps, %u slot changes, %u "
-                "XInput answers from a connected slot (gamepads are not replayed from this log)",
-                s->pad_records, s->pad_last_seq, s->pad_seq_gaps, s->pad_changes, s->pad_answers);
+                "XInput answers from a connected slot (%s)",
+                s->pad_records, s->pad_last_seq, s->pad_seq_gaps, s->pad_changes, s->pad_answers,
+                g_in.pad_log_path[0] ? "gamepads replay from SA2_INPUT_PAD_LOG"
+                                     : "gamepads are not replayed from this log");
     /* Pads that connect later, only when it answered anything apart from the records. */
     if (s->pad_stand_ins || s->pad_hidden)
         fprintf(g_in.log, "; pad objects for slots 0x%x, %u XInput answers standing in for a pad "
@@ -1034,54 +1093,243 @@ static void input_exit(void) {
  * sessions' keys at the same polls. Anything but a regular file is refused
  * before it is opened, since opening a FIFO to write waits for a reader;
  * O_NONBLOCK covers a path replaced in between, where such an open answers
- * ENXIO instead of waiting. */
-static void open_log(const char *path) {
-    snprintf(g_in.log_path, sizeof g_in.log_path, "%s", path);
+ * ENXIO instead of waiting. `var` names the variable in a refusal; NULL after
+ * one. Shared by SA2_INPUT_DI_LOG and SA2_INPUT_PAD_LOG, whose refusals read
+ * alike. */
+static FILE *open_new_log(const char *var, const char *path) {
     struct stat sb;
     if (!stat(path, &sb) && !S_ISREG(sb.st_mode)) {
-        input_refuse("SA2_INPUT_DI_LOG is not a regular file (%s)", path);
-        return;
+        input_refuse("%s is not a regular file (%s)", var, path);
+        return NULL;
     }
     const int fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NONBLOCK, 0644);
     if (fd < 0) {
-        input_refuse("SA2_INPUT_DI_LOG does not open: %s (%s)", strerror(errno), path);
-        return;
+        input_refuse("%s does not open: %s (%s)", var, strerror(errno), path);
+        return NULL;
     }
     if (fstat(fd, &sb) || !S_ISREG(sb.st_mode)) {
         close(fd);
-        input_refuse("SA2_INPUT_DI_LOG is not a regular file (%s)", path);
-        return;
+        input_refuse("%s is not a regular file (%s)", var, path);
+        return NULL;
     }
     if (sb.st_size) {
         close(fd);
-        input_refuse("SA2_INPUT_DI_LOG is not an empty file: a log replays one session from poll "
-                     "0, and two would merge (%s)", path);
-        return;
+        input_refuse("%s is not an empty file: a log replays one session from poll "
+                     "0, and two would merge (%s)", var, path);
+        return NULL;
     }
     const int fl = fcntl(fd, F_GETFL);
     if (fl < 0 || fcntl(fd, F_SETFL, fl & ~O_NONBLOCK)) {
         close(fd);
-        input_refuse("SA2_INPUT_DI_LOG: its descriptor's flags cannot be set: %s (%s)",
+        input_refuse("%s: its descriptor's flags cannot be set: %s (%s)", var,
                      strerror(errno), path);
-        return;
+        return NULL;
     }
-    if (!(g_in.log = fdopen(fd, "a"))) {
+    FILE *f = fdopen(fd, "a");
+    if (!f) {
         close(fd);
-        input_refuse("SA2_INPUT_DI_LOG: no stream for it (%s)", path);
-        return;
+        input_refuse("%s: no stream for it (%s)", var, path);
+        return NULL;
     }
     if (!g_in_atexit) {
         if (atexit(input_exit)) {
-            input_refuse("SA2_INPUT_DI_LOG: no exit handler could be registered, so the last "
-                         "line would be lost (%s)", path);
-            return;
+            fclose(f);
+            input_refuse("%s: no exit handler could be registered, so the last "
+                         "line would be lost (%s)", var, path);
+            return NULL;
         }
         g_in_atexit = 1;
     }
+    return f;
+}
+
+static void open_log(const char *path) {
+    snprintf(g_in.log_path, sizeof g_in.log_path, "%s", path);
+    if (!(g_in.log = open_new_log("SA2_INPUT_DI_LOG", path))) return;
     fprintf(g_in.log, "# SA2_INPUT_DI_LOG of a %s source: one line per run of keyboard polls "
             "holding the same keys, <first_poll> <last_poll> <dik>[,<dik>...]; it replays as "
             "SA2_INPUT_DI_SCRIPT\n", g_in.kind == IN_SCRIPT ? "script" : "FIFO");
     if (fflush(g_in.log)) input_refuse("SA2_INPUT_DI_LOG cannot be written (%s)", path);
+}
+
+static void open_pad_log(const char *path) {
+    snprintf(g_in.pad_log_path, sizeof g_in.pad_log_path, "%s", path);
+    if (!(g_in.pad_log = open_new_log("SA2_INPUT_PAD_LOG", path))) return;
+    fprintf(g_in.pad_log, "# SA2_INPUT_PAD_LOG of a %s source: \"mode <hotplug> <stand_ins>\" at the "
+            "first XInput call, then one line per change of a slot's state, <call> <polls> <slot> "
+            "<connected> <buttons> <lt> <rt> <lx> <ly> <rx> <ry>; it replays as "
+            "SA2_INPUT_PAD_SCRIPT beside SA2_INPUT_DI_SCRIPT\n",
+            g_in.kind == IN_FIFO ? "FIFO" : "script");
+    if (fflush(g_in.pad_log)) input_refuse("SA2_INPUT_PAD_LOG cannot be written (%s)", path);
+}
+
+static const char *nonempty(const char *name);
+
+/* A signed decimal from lo to hi. */
+static int parse_int(const char *s, long lo, long hi, long *out) {
+    char *end;
+    if (!*s) return 0;
+    errno = 0;
+    const long v = strtol(s, &end, 10);
+    if (errno || *end || v < lo || v > hi) return 0;
+    *out = v;
+    return 1;
+}
+
+/* One pad script line, its comment cut: 0 when blank, 1 for a change, 2 for the
+ * mode line, -1 with the reason in `why`. */
+static int parse_padline(char *s, di_padchange *c, int *later, int *stand_ins, char *why,
+                         size_t cap) {
+    char *f[12];
+    int n = 0;
+    for (char *p = s; *p;) {
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+        if (!*p) break;
+        if (n == 12) {
+            snprintf(why, cap, "more than eleven fields");
+            return -1;
+        }
+        f[n++] = p;
+        while (*p && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') p++;
+        if (*p) *p++ = 0;
+    }
+    if (!n) return 0;
+    long v[11];
+    if (!strcmp(f[0], "mode")) {
+        if (n != 3 || !parse_int(f[1], 0, 1, &v[0]) || !parse_int(f[2], 0, 1, &v[1])) {
+            snprintf(why, cap, "a mode line is \"mode <0|1> <0|1>\"");
+            return -1;
+        }
+        *later = (int)v[0];
+        *stand_ins = (int)v[1];
+        return 2;
+    }
+    if (n != 11) {
+        snprintf(why, cap, "%d field%s, not eleven", n, n == 1 ? "" : "s");
+        return -1;
+    }
+    uint32_t call, polls;
+    if (!parse_dec(f[0], &call) || !parse_dec(f[1], &polls) || !parse_int(f[2], 0, 3, &v[2]) ||
+        !parse_int(f[3], 0, 1, &v[3])) {
+        snprintf(why, cap, "the call, polls, slot (0 to 3) or connected (0 or 1) does not parse");
+        return -1;
+    }
+    char *end;
+    errno = 0;
+    const unsigned long b = strtoul(f[4], &end, 16);
+    if (strncmp(f[4], "0x", 2) || errno || *end || b > 0xFFFFu || (b & ~PAD_BUTTONS_MASK)) {
+        snprintf(why, cap, "the buttons \"%.12s\" are not 0x and hex within 0x%04X", f[4],
+                 PAD_BUTTONS_MASK);
+        return -1;
+    }
+    for (int i = 5; i < 11; i++)
+        if (!parse_int(f[i], i < 7 ? 0 : -32768, i < 7 ? 255 : 32767, &v[i])) {
+            snprintf(why, cap, "field %d \"%.12s\" is out of its range", i + 1, f[i]);
+            return -1;
+        }
+    memset(c, 0, sizeof *c);
+    c->call = call;
+    c->polls = polls;
+    c->slot = (uint32_t)v[2];
+    if (v[3]) {         /* a slot let go holds nothing else, as pad_record makes it */
+        c->v.connected = 1;
+        c->v.buttons = (uint16_t)b;
+        c->v.lt = (uint8_t)v[5];
+        c->v.rt = (uint8_t)v[6];
+        c->v.lx = (int16_t)v[7];
+        c->v.ly = (int16_t)v[8];
+        c->v.rx = (int16_t)v[9];
+        c->v.ry = (int16_t)v[10];
+    }
+    return 1;
+}
+
+/* The whole pad script, at configuration: a line that does not parse, or one
+ * before its predecessor's call, refuses the run, naming the line. */
+static void read_pad_script(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        input_refuse("SA2_INPUT_PAD_SCRIPT does not open: %s (%s)", strerror(errno), path);
+        return;
+    }
+    char *line = NULL;
+    size_t cap = 0;
+    uint32_t lineno = 0, room = 0;
+    ssize_t got;
+    while ((got = getline(&line, &cap, f)) >= 0) {
+        lineno++;
+        di_padchange c;
+        char why[96];
+        int r;
+        if (strlen(line) != (size_t)got) {
+            snprintf(why, sizeof why, "it holds a NUL byte");
+            r = -1;
+        } else {
+            char *hash = strchr(line, '#');
+            if (hash) *hash = 0;
+            r = parse_padline(line, &c, &g_in.script_later, &g_in.script_stand_ins, why, sizeof why);
+        }
+        if (r == 1 && g_in.npad_lines && c.call < g_in.pad_lines[g_in.npad_lines - 1].call) {
+            snprintf(why, sizeof why, "call %u comes after call %u", c.call,
+                     g_in.pad_lines[g_in.npad_lines - 1].call);
+            r = -1;
+        }
+        if (r < 0) {
+            free(line);
+            fclose(f);
+            input_refuse("SA2_INPUT_PAD_SCRIPT line %u: %s; see sa2_dinput.h, \"Gamepad replay\" "
+                         "(%s)", lineno, why, path);
+            return;
+        }
+        if (r != 1) continue;
+        if (g_in.npad_lines == room) {
+            room = room ? room * 2u : 64u;
+            di_padchange *l = (di_padchange *)realloc(g_in.pad_lines, room * sizeof *l);
+            if (!l) {
+                free(line);
+                fclose(f);
+                input_refuse("SA2_INPUT_PAD_SCRIPT: no memory for %u lines (%s)", room, path);
+                return;
+            }
+            g_in.pad_lines = l;
+        }
+        g_in.pad_lines[g_in.npad_lines++] = c;
+    }
+    const int bad = ferror(f);
+    free(line);
+    fclose(f);
+    if (bad) {
+        input_refuse("SA2_INPUT_PAD_SCRIPT could not be read to its end (%s)", path);
+        return;
+    }
+    g_in.pad_script = 1;
+    g_in.st.pad_script_lines = g_in.npad_lines;
+}
+
+/* Gamepad replay's configuration, after the keyboard's: the pad log needs a
+ * source of pads (the FIFO, or the pad script), and the pad script the
+ * keyboard's script, since a FIFO brings its own pads. */
+static void pad_config(void) {
+    const char *script = nonempty("SA2_INPUT_PAD_SCRIPT"), *log = nonempty("SA2_INPUT_PAD_LOG");
+    if (!script && !log) return;
+    if (script && g_in.kind != IN_SCRIPT) {
+        input_refuse("SA2_INPUT_PAD_SCRIPT is set without SA2_INPUT_DI_SCRIPT: a pad script "
+                     "replays beside the keyboard's script, and a FIFO brings its own pads");
+        return;
+    }
+    if (log && g_in.kind != IN_FIFO && !script) {
+        input_refuse("SA2_INPUT_PAD_LOG is set with neither a FIFO source nor "
+                     "SA2_INPUT_PAD_SCRIPT: the log holds what a source of pads applied");
+        return;
+    }
+    if ((script && strlen(script) >= sizeof g_in.path) ||
+        (log && strlen(log) >= sizeof g_in.pad_log_path)) {
+        input_refuse("SA2_INPUT_PAD_SCRIPT or SA2_INPUT_PAD_LOG is a path of %zu bytes or more",
+                     sizeof g_in.path);
+        return;
+    }
+    if (script) read_pad_script(script);
+    if (log) open_pad_log(log);
 }
 
 #if defined(_WIN32)
@@ -1109,8 +1357,11 @@ static void input_config(void) {
      * non-empty). */
     free(g_in.lines);
     free(g_in.ev);
+    free(g_in.pend);
+    free(g_in.pad_lines);
     if (g_in.fd >= 0) close(g_in.fd);
     if (g_in.log) fclose(g_in.log);
+    if (g_in.pad_log) fclose(g_in.pad_log);
     memset(&g_in, 0, sizeof g_in);
     g_in.fd = -1;
     g_in_stop = 0;
@@ -1120,6 +1371,10 @@ static void input_config(void) {
         if (log)
             input_refuse("SA2_INPUT_DI_LOG is set and neither SA2_INPUT_DI_SCRIPT nor "
                          "SA2_INPUT_DI_SOURCE is: the log holds what a source applied");
+        else if (nonempty("SA2_INPUT_PAD_SCRIPT") || nonempty("SA2_INPUT_PAD_LOG"))
+            input_refuse("SA2_INPUT_PAD_SCRIPT or SA2_INPUT_PAD_LOG is set and neither "
+                         "SA2_INPUT_DI_SCRIPT nor SA2_INPUT_DI_SOURCE is: gamepad replay rides "
+                         "on the keyboard's source");
         return;
     }
     const char *name = script ? "SA2_INPUT_DI_SCRIPT" : "SA2_INPUT_DI_SOURCE";
@@ -1219,6 +1474,7 @@ static void input_config(void) {
         g_in.pad_later = !h || !strcmp(h, "1");
     }
     if (log) open_log(log);
+    pad_config();
 }
 
 /* The keyboard's answer at the next poll index: the source's keys written as
@@ -1342,17 +1598,75 @@ static void pad_boot_end(void) {
             "later drives the game\n", g_in.pad_objects, g_in.st.pad_stand_in_slots);
 }
 
-int sa2_dinput_live_pad(uint32_t slot, uint32_t caller, sa2_di_pad *out) {
-    if (g_in.kind != IN_FIFO || slot >= SA2_DI_PAD_SLOTS) return 0;
-    const src_at at = {"XINPUT1_3", "XInput", caller, SA2_DI_THUNK_BASE};
-    if (g_in.fd < 0) fifo_open(&at);
-    fifo_drain(&at);
-    if (!g_in.pad_asked) {
-        g_in.pad_asked = 1;
-        pad_boot_wait(&at);
-        g_in.pad_boot = 1;
-        g_in.st.pad_hotplug = g_in.pad_later && g_in.st.pad_records ? 1u : 0u;
+/* SA2_INPUT_PAD_SCRIPT at XInput call `call`: every line of that call, in order,
+ * as pad_record would have set the slot. */
+static void pad_script_apply(uint32_t call) {
+    while (g_in.next_pad_line < g_in.npad_lines && g_in.pad_lines[g_in.next_pad_line].call <= call) {
+        const di_padchange *c = &g_in.pad_lines[g_in.next_pad_line++];
+        if (c->polls != g_in.st.polls) {
+            if (!g_in.st.pad_script_desyncs) {
+                g_in.st.pad_script_first_desync = call;
+                fprintf(stderr, "sa2 dinput: SA2_INPUT_PAD_SCRIPT: XInput call %u comes after %u "
+                        "keyboard polls, the session's after %u: the replay has left its path\n",
+                        call, g_in.st.polls, c->polls);
+            }
+            g_in.st.pad_script_desyncs++;
+        }
+        pad_set(c->slot, &c->v);
+        g_in.st.pad_script_applied++;
     }
+}
+
+/* SA2_INPUT_PAD_LOG at XInput call `call`: the mode line at the first, then every
+ * change this call is the first to answer from. */
+static void pad_log_flush(const src_at *at, uint32_t call) {
+    int ok = 1;
+    if (!g_in.pad_mode_logged) {
+        ok &= fprintf(g_in.pad_log, "mode %d %u\n", g_in.pad_later ? 1 : 0, g_in.st.pad_hotplug) > 0;
+        g_in.pad_mode_logged = 1;
+    }
+    for (uint32_t i = 0; i < g_in.npend; i++) {
+        const sa2_di_pad *v = &g_in.pend[i].v;
+        ok &= fprintf(g_in.pad_log, "%u %u %u %u 0x%04X %u %u %d %d %d %d\n", call, g_in.st.polls,
+                      g_in.pend[i].slot, v->connected, v->buttons, v->lt, v->rt, v->lx, v->ly, v->rx,
+                      v->ry) > 0;
+        g_in.st.pad_log_lines++;
+    }
+    const int any = g_in.npend || call == 0u;
+    g_in.npend = 0;
+    if (any) ok &= fflush(g_in.pad_log) == 0;
+    if (!ok) {
+        char why[220];
+        snprintf(why, sizeof why, "SA2_INPUT_PAD_LOG could not be written: %s (%s)", strerror(errno),
+                 g_in.pad_log_path);
+        src_refuse(at, why);
+    }
+}
+
+int sa2_dinput_live_pad(uint32_t slot, uint32_t caller, sa2_di_pad *out) {
+    if ((g_in.kind != IN_FIFO && !g_in.pad_script) || slot >= SA2_DI_PAD_SLOTS) return 0;
+    const src_at at = {"XINPUT1_3", "XInput", caller, SA2_DI_THUNK_BASE};
+    const uint32_t call = g_in.st.xi_calls++;
+    if (g_in.kind == IN_FIFO) {
+        if (g_in.fd < 0) fifo_open(&at);
+        fifo_drain(&at);
+        if (!g_in.pad_asked) {
+            g_in.pad_asked = 1;
+            pad_boot_wait(&at);
+            g_in.pad_boot = 1;
+            g_in.st.pad_hotplug = g_in.pad_later && g_in.st.pad_records ? 1u : 0u;
+        }
+    } else {
+        /* The pad script: the session's mode, then its changes for this call. */
+        if (!g_in.pad_asked) {
+            g_in.pad_asked = 1;
+            g_in.pad_boot = 1;
+            g_in.pad_later = g_in.script_later;
+            g_in.st.pad_hotplug = g_in.script_stand_ins ? 1u : 0u;
+        }
+        pad_script_apply(call);
+    }
+    if (g_in.pad_log) pad_log_flush(&at, call);
     const int boot_call = caller == XI_RET_BOOT_SCAN || caller == XI_RET_INIT_CAPS ||
                           caller == XI_RET_INIT_STATE;
     if (g_in.pad_boot && !boot_call) pad_boot_end();

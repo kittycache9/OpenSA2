@@ -4,7 +4,7 @@ The saves here are filler of the right sizes, and the stand-in executable is a m
 whose section holds the standard CRC-32 table where the game keeps its own, so the Chao World
 checksum is exercised with no game bytes. Covered: what is refused (a wrong name or size, a ZIP
 holding a save twice, a ZIP with other files, a bad checksum without --force), what an import
-writes (the overlay alone, the game folder untouched), a zipped SAVEDATA folder, export,
+writes (the overlay alone, the game folder untouched), a Debug Export's two save sets, export,
 the backups (one per import, the newest ten kept) and a restore of the oldest backup.
 """
 from __future__ import annotations
@@ -131,20 +131,23 @@ def test_a_bad_checksum_is_refused_unless_forced(setup, capsys):
     assert run("import", str(tmp / "SONIC2B__ALF"), "--force") == 0
 
 
-def test_zips_and_refusals(setup, capsys):
+def test_zips_a_session_export_and_refusals(setup, capsys):
     tmp, run, saves, _, _ = setup
-    z = tmp / "saves.zip"
+    z = tmp / "export.zip"
     with zipfile.ZipFile(z, "w") as w:
-        w.writestr("SAVEDATA/SONIC2B__S01", b"\4" * MAIN)
-        w.writestr("SAVEDATA/index.tsv", b"x")
+        w.writestr("session/start-saves/SONIC2B__S01", b"\3" * MAIN)
+        w.writestr("session/end-saves/SONIC2B__S01", b"\4" * MAIN)
+        w.writestr("session/end-saves/index.tsv", b"x")
     assert run("import", str(z)) == 0
     assert (saves / "SONIC2B__S01").read_bytes()[:1] == b"\4"
+    assert run("import", str(z), "--from", "start") == 0
+    assert (saves / "SONIC2B__S01").read_bytes()[:1] == b"\3"
     dup = tmp / "dup.zip"
     with zipfile.ZipFile(dup, "w") as w:
         w.writestr("a/SONIC2B__S01", b"\5" * MAIN)
         w.writestr("b/SONIC2B__S01", b"\5" * MAIN)
     assert run("import", str(dup)) == 2
-    assert run("import", str(z), str(tmp / "saves.zip")) == 2
+    assert run("import", str(z), str(tmp / "export.zip")) == 2
 
 
 def test_an_oversized_entry_or_file_is_refused_unread(setup, monkeypatch, capsys):

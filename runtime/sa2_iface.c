@@ -770,7 +770,8 @@ uint32_t sa2_xinput(uint32_t ordinal, const uint32_t *argv, uint32_t caller,
     for (uint32_t i = 0; i < *out_len && i < 32u; i++) out_bytes[i] = 0;
     /* A pad the live source holds connected (runtime/sa2_dinput.h, "The host
      * gamepads"): answered as XInput 1.3 answers for a wired Xbox 360 pad.
-     * Never in a replay, whose source is a script or none. */
+     * In a replay only from a pad script (SA2_INPUT_PAD_SCRIPT, "Gamepad
+     * replay"), which answers as the session's source did; never otherwise. */
     sa2_di_pad pad;
     const int live = sa2_dinput_live_pad(argv[0], caller, &pad);
     if (live) {

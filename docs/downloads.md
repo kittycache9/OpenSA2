@@ -48,7 +48,9 @@ Tap **Game settings** on the setup screen. Changes apply the next time the game 
 
 **Reset all settings** restores the defaults. It does not change your saves.
 
-The **Saves** card in **Game settings** manages the game's saves. **Import saves** takes save files, such as `SONIC2B__S01` for the story or `SONIC2B__ALF` for Chao World, or a ZIP of them. It replaces only the saves it brings, and it keeps a backup of your current saves first. The app keeps the last 10 backups. **Export saves** writes the saves the game uses to a ZIP in a place you choose. **Restore a backup** puts the saves back to one of the backups. The app refuses a file whose name or size is not a save's. It does not check a Chao World save's checksum, so import only saves you trust. The game reads the new saves the next time it starts.
+The **Saves** card in **Game settings** manages the game's saves. **Import saves** takes save files, such as `SONIC2B__S01` for the story or `SONIC2B__ALF` for Chao World, or a ZIP of them. Given a Debug Export, it asks whether to import the saves from the start or the end of that session. It replaces only the saves it brings, and it keeps a backup of your current saves first. The app keeps the last 10 backups. **Export saves** writes the saves the game uses to a ZIP in a place you choose. **Restore a backup** puts the saves back to one of the backups. The app refuses a file whose name or size is not a save's. It does not check a Chao World save's checksum, so import only saves you trust. The game reads the new saves the next time it starts.
+
+The **Debug** section at the end of **Game settings** has **Record sessions** and **Debug Export**. **Record sessions** is off by default; turned on, each session also keeps what a replay needs (see below). **Export the latest session** makes one ZIP of the last time you played and opens the share sheet, so you can attach it to a bug report or send it to your computer. **Export another session** picks one of the earlier sessions the app keeps. See [Export a session for a bug report](#export-a-session-for-a-bug-report) for what the ZIP holds.
 
 ### Report a crash on Android
 
@@ -69,6 +71,22 @@ sudo apt install './OpenSA2-v0.1.0-alpha.5-linux-x86_64.deb'
 Open OpenSA2 from your application menu, or run `opensa2`. The first start finds a Steam copy or offers a game-folder picker. A controller is optional.
 
 Saves, settings, and logs use the port's per-user `sa2recomp` directories under your XDG data and configuration locations. The package does not write into your Steam installation.
+
+## Export a session for a bug report
+
+Each time you play, OpenSA2 keeps a session folder with the game's logs and your keyboard input. A Debug Export puts one session into a ZIP that a developer can read, with the saves as they are when you export.
+
+For a ZIP a developer can also replay, turn on the session recorder before you play: **Record sessions** in the Debug section of **Game settings** on Android, or `--record-session` (`opensa2 --record-session`) on the desktop. To record every desktop session, add the line `SA2_RECORD_SESSION=1` to the release's `share/game.env`. A recorded session also keeps your controller input, the settings the game ran with, and copies of your saves and configuration from before and after it, about 200 KB more per session. The recorder is off by default.
+
+On Android, use **Debug Export** in the Debug section of **Game settings**. On Linux, run:
+
+```bash
+opensa2 --debug-export
+```
+
+On Windows, run `bin\sa2recomp.exe --debug-export` from the extracted folder (tested on Linux and Android only). With no other argument the newest session is exported to `exports/sa2-debug-<session>.zip` in the port's data folder, and the command prints the ZIP's path. Name another session folder (or give its path) to export it instead, and add `--out FILE.zip` to choose where the ZIP goes.
+
+The ZIP holds a `MANIFEST.txt` that lists every file with its size and purpose. Your home folder, game folder and data folder are written as `~`, `<game>` and `<data>` in its text files. It holds your saves and your game settings, but no game files, no pictures of the game, and no account details. Read the manifest before you share the ZIP.
 
 ## Tweaks
 

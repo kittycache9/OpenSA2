@@ -159,4 +159,14 @@ python3 tools/saves.py restore BACKUP
 
 Each import and restore first backs up the current saves to `$XDG_DATA_HOME/sa2recomp/save-backups/`, and the newest 10 backups are kept. A file whose name or size is not a save's is refused. A Chao World save (`SONIC2B__ALF`) is also refused when its checksum does not match; the check reads the checksum table from the game executable the configuration names (`--exe` names another), and `--force` imports it anyway.
 
+Each launch keeps a session folder under the data folder's `sessions/`. With the session recorder on (`--record-session`, or `SA2_RECORD_SESSION=1` in `share/game.env`, which the launcher reads and does not pass to the game; on Android, **Record sessions** in the Debug card), it also keeps the saves and `Config/` from before and after the game, `session-info.json` and the pad log, which a replay needs. The recorder is off by default. `bin/sa2recomp --debug-export [SESSION] [--out FILE.zip]` writes one session (the newest by default) to a ZIP, and the Android app's **Game settings** > **Debug** > **Debug Export** does the same on a device. `host/launch/sa2_debug_export.h` and `host/launch/sa2_session_files.h` describe the ZIP's layout. To replay an export headlessly with the release in `private/generated/s7/release/linux-x86_64` and compare its game-mode transitions with the session's:
+
+```bash
+.venv/bin/python tools/s7/replay_export.py sa2-debug-SESSION.zip
+```
+
+To put a session's saves in place instead, `tools/saves.py import sa2-debug-SESSION.zip` imports the saves the session ended with, and `--from start` the ones it started from; the Android **Saves** card asks which.
+
+It replays the keyboard from the session's `input.log` and the controllers from its `pad.log`. The game logs controller changes to the file `SA2_INPUT_PAD_LOG` names and replays a log given by `SA2_INPUT_PAD_SCRIPT`; with both unset, it does neither. `runtime/sa2_dinput.h` describes the format.
+
 To try the low-FPS speed fix in a development build, add `SA2_PLAY_FRAMESKIP=2`, `3`, or `auto` to the build's `share/game.env`. The live-play tool `tools/s5/play_live.py` takes `--frameskip 2|3|auto` instead, and it removes a `SA2_PLAY_FRAMESKIP` left in your shell. Registered replays and test runs never use the setting. The game's log reports what the fix did; `runtime/sa2_frameskip.c` describes the mechanism.

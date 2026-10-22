@@ -660,7 +660,7 @@ class Builder:
         os_ = self.b / "obj/session"
         os_.mkdir(parents=True, exist_ok=True)
         units += [(self.cxx, sflags, s, os_ / f"{s.stem}.o") for s in session]
-        units += [(self.cxx, sflags, LAUNCH / f"{s}.cpp", os_ / f"{s}.o") for s in ("sa2_relay", "sa2_launch_posix")]
+        units += [(self.cxx, sflags, LAUNCH / f"{s}.cpp", os_ / f"{s}.o") for s in ("sa2_relay", "sa2_launch_posix", "sa2_session_files")]
         units += [(self.cxx, sflags, INSTALL / f"{s}.cpp", os_ / f"{s}.o") for s in ("sa2_config", "sa2_platform_posix")]
         units.append((self.cxx, sflags, table, os_ / "sa2_install_table.o"))
         stats = self.compile_many("player", units)

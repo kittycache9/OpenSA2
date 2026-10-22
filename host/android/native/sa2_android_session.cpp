@@ -42,6 +42,15 @@
 // Every outcome is written to <files>/last-session.txt, which Sa2SetupActivity shows when the
 // session ends, and to logcat (tag sa2recomp).
 //
+// The session recorder (host/launch/sa2_session_files.h), as the launcher's:
+// before the game, the saves and Config/ it will see (start-saves/, start-config/), its settings
+// (game-env.txt) and session-info.json (the device's model, Android version, SoC and ABI, the
+// screen, the settings screen's choices); the pads by XInput call (SA2_INPUT_PAD_LOG, pad.log),
+// since the touch overlay is slot 0's pad and the keyboard log alone does not replay a phone's
+// session; after it, end-saves/ and end-config/, and session-info.json again with the sha256 of
+// libsa2game.so and libmain.so (hashed once the game has ended, so the boot does not wait on
+// it). The settings screen's Debug section (host/android/java DebugExport) zips the folder.
+//
 // Speed on a phone (the phone-perf unit, 2026-10-12). The game's guest threads run one at a
 // time, and on the user's phone that serialized path (the guest's main thread, its audio thread
 // and the recorder) was the frame's bottleneck. So, by default:
@@ -114,6 +123,7 @@
 #include <sched.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <sys/system_properties.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -142,6 +152,8 @@
 #include "sa2_launch_platform.h"
 #include "sa2_platform.h"
 #include "sa2_relay.h"
+#include "sa2_session_files.h"
+#include "sha256.h"
 
 // host/player/player.cpp's main, renamed by the build (-Dmain=sa2_player_main).
 int sa2_player_main(int argc, char** argv);
@@ -850,6 +862,63 @@ std::string full_width(EnvList& env, const std::string& screen, bool settings_re
     return on + "; the config's own size" + (have ? " (the screen is no wider than 4:3)" : "");
 }
 
+// ------------------------------------------------------------ the session recorder (the header)
+
+std::string prop(const char* name) {
+    char buf[PROP_VALUE_MAX] = {0};
+    __system_property_get(name, buf);
+    return buf;
+}
+
+// The device, for session-info.json: what a bug report needs to know about the phone.
+sa2s::KV device_facts() {
+    sa2s::KV kv = sa2s::host_facts();
+    for (const auto& [key, name] : {std::pair<const char*, const char*>{"manufacturer", "ro.product.manufacturer"},
+                                    {"model", "ro.product.model"},
+                                    {"device", "ro.product.device"},
+                                    {"android", "ro.build.version.release"},
+                                    {"sdk", "ro.build.version.sdk"},
+                                    {"soc", "ro.soc.model"},
+                                    {"soc_manufacturer", "ro.soc.manufacturer"},
+                                    {"abi", "ro.product.cpu.abi"},
+                                    {"build", "ro.build.fingerprint"}}) {
+        const std::string v = prop(name);
+        if (!v.empty()) kv.push_back({key, v});
+    }
+    return kv;
+}
+
+void write_session_info(const std::string& session, const sa2s::KV& run, const sa2s::KV& build) {
+    sa2s::KV info = {{"schema", "sa2-session-info/v1"}};
+    info.insert(info.end(), run.begin(), run.end());
+    info.push_back({"build:", sa2s::json_object(build)});
+    info.push_back({"platform:", sa2s::json_object(device_facts())});
+    sa2p::write_file_atomic(session + "/session-info.json", sa2s::json_object(info) + "\n");
+}
+
+void record_start(const std::string& session, const Sa2Config& cfg, const EnvList& genv, const sa2s::KV& subs,
+                  const sa2s::KV& run) {
+    for (const auto& [rel, dir] : {std::pair<const char*, const char*>{sa2s::kSaveDir, "/start-saves"},
+                                   {sa2s::kConfigDir, "/start-config"}}) {
+        const sa2s::Snapshot s = sa2s::snapshot(cfg.read_root, cfg.overlay, rel, false, session + dir);
+        if (!s.error.empty()) say("session recorder: %s", s.error.c_str());
+    }
+    sa2p::write_file_atomic(session + "/game-env.txt", sa2s::env_text(genv, subs));
+    write_session_info(session, run, {{"install_table", sa2_install_table().id}});
+}
+
+void record_end(const std::string& session, const Sa2Config& cfg, const sa2s::KV& run, const std::string& game_lib,
+                const std::string& main_lib) {
+    for (const auto& [rel, dir] : {std::pair<const char*, const char*>{sa2s::kSaveDir, "/end-saves"},
+                                   {sa2s::kConfigDir, "/end-config"}}) {
+        const sa2s::Snapshot s = sa2s::snapshot(cfg.read_root, cfg.overlay, rel, false, session + dir);
+        if (!s.error.empty()) say("session recorder: %s", s.error.c_str());
+    }
+    write_session_info(session, run, {{"install_table", sa2_install_table().id},
+                                      {"game_sha256", sha256_file(game_lib)},
+                                      {"libmain_sha256", sha256_file(main_lib)}});
+}
+
 int play_game(const Args& a) {
     // The installation.
     const std::string cfg_path = sa2_config_path();
@@ -1012,6 +1081,23 @@ int play_game(const Args& a) {
     // Android the touch overlay is slot 0's pad from the start, so the pad drives player 1.
     env_set(genv, "SA2_GUEST_CMDLINE", "-r");
     env_set(genv, "SA2_INPUT_PAD_WAIT_MS", "10000");
+    // The session recorder (the header): what the game will see, before it starts. Off unless the
+    // settings screen's Debug card asks for it (SA2_RECORD_SESSION=1, a --setting the session reads
+    // and does not hand to the game), so a session writes what it always has; on, the pads by
+    // XInput call too (pad.log).
+    const std::string* record_asked = env_find(genv, "SA2_RECORD_SESSION");
+    const bool recording = record_asked && *record_asked == "1";
+    genv.erase(std::remove_if(genv.begin(), genv.end(), [](auto& e) { return e.first == "SA2_RECORD_SESSION"; }),
+               genv.end());
+    say("session recorder: %s", recording ? "on (Debug > Record sessions)" : "off");
+    if (recording) env_set(genv, "SA2_INPUT_PAD_LOG", session + "/pad.log");
+    const sa2s::KV subs = {{session, "<session>"}, {cfg.read_root, "<game>"}, {cfg.overlay, "<overlay>"},
+                           {a.libdir, "<apk>/lib"}, {a.external, "<ext>"}, {a.files, "<files>"}};
+    sa2s::KV run = {{"runner", "host/android"}, {"mode", "play"}, {"host", "sdl3-gpu"}, {"started", sa2p::now_utc_iso8601()},
+                    {"screen", a.screen}, {"orientation", a.orientation.empty() ? "landscape" : a.orientation},
+                    {"paced", a.pace ? "true" : "false"}, {"sound", a.audio ? "true" : "false"}};
+    for (const auto& kv : a.settings) run.push_back({"setting " + kv.first, kv.second});
+    if (recording) record_start(session, cfg, genv, subs, run);
     sa2l::Spawn gs;
     gs.exe = game_bin;
     gs.argv = {game_bin, cfg.exe, "--json", session + "/game.runrec", "--timeout", "0"};
@@ -1197,6 +1283,7 @@ int play_game(const Args& a) {
             st.find(" records, ") != std::string::npos)
             closed = "; the game had closed its records";
     }
+    if (recording) record_end(session, cfg, run, game_bin, a.libdir + "/libmain.so");
     say("ended: %s; the game stopped by %s (status %d); the player exited %d%s", ended_by.c_str(), stop_how.c_str(),
         game.status, rc, closed.c_str());
     say("relay: %llu frames in, %llu out, %llu bytes%s", (unsigned long long)rs.frames_in,

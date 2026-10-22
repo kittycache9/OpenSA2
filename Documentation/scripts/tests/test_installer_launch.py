@@ -75,12 +75,14 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
 import textwrap
 import time
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -773,6 +775,112 @@ def test_a_save_in_the_installation_folder_is_hidden_from_the_selftest(release, 
     args = json.loads((session / "game-args.runrec").read_text())
     assert args["env"]["SA2_VFS_HIDE_INSTALL_SAVES"] == "1"
     assert (session / "overlay/resource/gd_PC/SAVEDATA/SONIC2B__S01").read_bytes() == b"\0" * 64
+
+
+def test_the_session_recorder_is_off_unless_asked_for(release, tmp_path):
+    """Without --record-session or SA2_RECORD_SESSION=1 in share/game.env the launch writes what it
+    always has: no start or end snapshots, no session-info.json, no pad log for the game; the
+    launch record says so. SA2_RECORD_SESSION=1 in game.env turns it on, and is the launcher's:
+    the game is not given it."""
+    home, _ = installed(release, tmp_path)
+    p, doc, session = selftest(release, home, tmp_path)
+    assert p.returncode == 0, p.stdout + p.stderr
+    args = json.loads((session / "game-args.runrec").read_text())
+    assert "SA2_INPUT_PAD_LOG" not in args["env"]
+    for n in ("start-saves", "start-config", "end-saves", "session-info.json", "game-env.txt"):
+        assert not (session / n).exists(), n
+    assert doc["session_recorder"] is False
+    assert "session recorder: off" in p.stdout + p.stderr
+    env_file = release["rel"] / "share" / "game.env"
+    before = env_file.read_text()
+    try:
+        env_file.write_text(before + "SA2_RECORD_SESSION=1\n")
+        p, doc, session = selftest(release, home, tmp_path, name="recorded")
+    finally:
+        env_file.write_text(before)
+    assert p.returncode == 0, p.stdout + p.stderr
+    args = json.loads((session / "game-args.runrec").read_text())
+    assert args["env"]["SA2_INPUT_PAD_LOG"] == str(session / "pad.log") and "SA2_RECORD_SESSION" not in args["env"]
+    assert (session / "start-saves").is_dir() and (session / "session-info.json").is_file()
+    assert doc["session_recorder"] is True
+
+
+def test_a_session_keeps_what_its_replay_needs(release, tmp_path):
+    """The session recorder (host/launch/sa2_session_files.h), with --record-session: before the
+    game, the saves and Config/ the game will see (start-saves/, start-config/, each with its
+    index), its settings with the paths redacted (game-env.txt) and session-info.json naming the
+    build; the game is given the pad log (SA2_INPUT_PAD_LOG); after it, the saves it left
+    (end-saves/)."""
+    home, _ = installed(release, tmp_path)
+    p, doc, session = selftest(release, home, tmp_path, "--record-session")
+    assert p.returncode == 0, p.stdout + p.stderr
+    args = json.loads((session / "game-args.runrec").read_text())
+    assert args["env"]["SA2_INPUT_PAD_LOG"] == str(session / "pad.log")
+    assert sorted(f.name for f in (session / "start-saves").iterdir()) == ["index.tsv"]
+    assert sorted(f.name for f in (session / "start-config").iterdir()) == ["Keyboard.cfg", "UserConfig.cfg",
+                                                                             "index.tsv"]
+    assert (session / "end-saves/SONIC2B__S01").read_bytes() == b"\0" * 64
+    assert re.search(r"^SONIC2B__S01\toverlay\t64\t[0-9a-f]{64}$", (session / "end-saves/index.tsv").read_text(), re.M)
+    genv = (session / "game-env.txt").read_text()
+    assert "SA2_INPUT_PAD_LOG=<session>/pad.log\n" in genv and "SA2_VFS_WRITE_ROOT=<overlay>\n" in genv
+    assert str(home) not in genv and str(tmp_path) not in genv
+    info = json.loads((session / "session-info.json").read_text())
+    assert info["schema"] == "sa2-session-info/v1" and info["runner"] == "host/launch" and info["mode"] == "selftest"
+    assert info["build"]["game_sha256"] == hashlib.sha256((release["rel"] / "bin/sa2-game").read_bytes()).hexdigest()
+    assert info["platform"]["os"] == "linux" and info["read_root_saves_hidden"] == "true"
+
+
+def test_debug_export_zips_a_session_with_its_manifest_and_no_home_path(release, tmp_path):
+    """sa2recomp --debug-export SESSION --out FILE (host/launch/sa2_debug_export.h): every regular
+    file of the session under session/, the release's manifest and settings under build/, the
+    installer's config under install/, and MANIFEST.txt naming each entry with its size and sha256;
+    no FIFO, no selftest overlay, and no text entry holding the home folder. A session recorded
+    with --record-session; one that was not still exports, with a note that it cannot be replayed."""
+    home, _ = installed(release, tmp_path)
+    p, doc, session = selftest(release, home, tmp_path, "--record-session")
+    assert p.returncode == 0, p.stdout + p.stderr
+    out = tmp_path / "export.zip"
+    e = subprocess.run([str(release["rel"] / "bin" / "sa2recomp"), "--debug-export", str(session), "--out", str(out)],
+                       capture_output=True, text=True, env=env_for(home))
+    assert e.returncode == 0, e.stdout + e.stderr
+    assert "Debug Export of session session:" in e.stdout
+    z = zipfile.ZipFile(out)
+    assert z.testzip() is None
+    names = set(z.namelist())
+    for n in ("MANIFEST.txt", "session/ticks.tsv", "session/game.runrec",
+              "session/end-saves/SONIC2B__S01", "session/start-config/UserConfig.cfg", "session/session-info.json",
+              "session/game-env.txt", "build/release.manifest", "build/game.env", "install/sa2recomp.cfg"):
+        assert n in names, n
+    assert not any(n.startswith("session/overlay/") or n.endswith(".fifo") for n in names), names
+    manifest = z.read("MANIFEST.txt").decode()
+    rows = [l.split("\t") for l in manifest.splitlines() if l and not l.startswith("#")]
+    assert {r[0] for r in rows} == names - {"MANIFEST.txt"}
+    for name, size, sha, what in rows:
+        data = z.read(name)
+        assert int(size) == len(data) and sha == hashlib.sha256(data).hexdigest() and what
+        if not name.endswith(("SONIC2B__S01", ".cfg")):
+            assert str(home).encode() not in data, name
+    assert "session/ticks.tsv\t" in manifest and "SA2_LAUNCH_TICKS" in manifest
+    assert "not replayable" not in manifest
+    # An unrecorded session: its logs and the saves at export time, and the note.
+    p, doc, plain = selftest(release, home, tmp_path, name="plain")
+    assert p.returncode == 0, p.stdout + p.stderr
+    out2 = tmp_path / "plain.zip"
+    e = subprocess.run([str(release["rel"] / "bin" / "sa2recomp"), "--debug-export", str(plain), "--out", str(out2)],
+                       capture_output=True, text=True, env=env_for(home))
+    assert e.returncode == 0, e.stdout + e.stderr
+    z2 = zipfile.ZipFile(out2)
+    names2 = set(z2.namelist())
+    assert "session/game-args.runrec" in names2 and "MANIFEST.txt" in names2
+    assert not any(n.startswith("session/start-saves/") for n in names2)
+    assert "# not replayable: the session recorder was off" in z2.read("MANIFEST.txt").decode()
+
+
+def test_debug_export_with_no_session_says_so(release, tmp_path):
+    home, _ = installed(release, tmp_path)
+    e = subprocess.run([str(release["rel"] / "bin" / "sa2recomp"), "--debug-export"], capture_output=True, text=True,
+                       env=env_for(home))
+    assert e.returncode == 5 and "no session under <data>/sessions to export" in e.stderr, e.stderr
 
 
 def test_a_ctrl_c_reaches_the_launcher_alone(release, tmp_path):

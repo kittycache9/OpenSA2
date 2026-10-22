@@ -284,6 +284,7 @@ final class GameSettings {
 
     String orientation = LANDSCAPE;
     boolean widescreen = true, hud43 = true;
+    boolean recordSessions = false;   // the session recorder (Debug card): off, as without it
     int resolution = 0;                  // lines, 0 the screen's
     String aspect = "auto";
     String frameskip = "off";            // FRAMESKIPS; any other stored value is off
@@ -299,6 +300,7 @@ final class GameSettings {
         s.orientation = p.getString("orientation", s.orientation);
         s.widescreen = p.getBoolean("widescreen", s.widescreen);
         s.hud43 = p.getBoolean("hud43", s.hud43);
+        s.recordSessions = p.getBoolean("record_sessions", s.recordSessions);
         s.resolution = p.getInt("resolution", s.resolution);
         s.aspect = p.getString("aspect", s.aspect);
         s.frameskip = p.getString("frameskip", s.frameskip);
@@ -320,6 +322,7 @@ final class GameSettings {
                 .putString("orientation", orientation)
                 .putBoolean("widescreen", widescreen)
                 .putBoolean("hud43", hud43)
+                .putBoolean("record_sessions", recordSessions)
                 .putInt("resolution", resolution)
                 .putString("aspect", aspect)
                 .putString("frameskip", frameskip)
@@ -476,6 +479,7 @@ final class GameSettings {
         if (!padMap.isEmpty()) e.add("SA2_PAD_MAP=" + padMap);
         String tweaks = tweaks();
         if (!tweaks.isEmpty()) e.add("SA2_TWEAKS=" + tweaks);
+        if (recordSessions) e.add("SA2_RECORD_SESSION=1");   // the native session's, not the game's
         return e;
     }
 

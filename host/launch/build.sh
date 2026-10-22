@@ -42,6 +42,7 @@ fi
 mkdir -p "$(dirname "$OUT")"
 I="$HOSTDIR/install"
 SOURCES=("$HERE/sa2_launch.cpp" "$HERE/sa2_relay.cpp" "$HERE/sa2_json.cpp" "$HERE/sa2_dialog.cpp"
+         "$HERE/sa2_session_files.cpp" "$HERE/sa2_debug_export.cpp"
          "$I/sa2_config.cpp" "$HOSTDIR/player/sha256.cpp" "$HOSTDIR/player/tweaks.cpp" "$TABLE")
 for src in "$HERE"/tweaks/*.cpp; do
     [ -e "$src" ] && SOURCES+=("$src")

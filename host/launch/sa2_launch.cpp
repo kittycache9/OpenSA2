@@ -184,12 +184,14 @@
 #include <vector>
 
 #include "sa2_config.h"
+#include "sa2_debug_export.h"
 #include "sa2_dialog.h"
 #include "sa2_install.h"
 #include "sa2_json.h"
 #include "sa2_launch_platform.h"
 #include "sa2_platform.h"
 #include "sa2_relay.h"
+#include "sa2_session_files.h"
 #include "sha256.h"
 #include "tweaks.h"
 #include "tweaks/speedrun-timer.h"
@@ -239,6 +241,9 @@ struct Options {
     std::string out, record, video_driver, play_res;   // play_res: --play-res WxH
     double timeout_s = 900;
     std::vector<std::string> player_args;   // --player-arg: play only
+    bool debug_export = false;              // --debug-export [SESSION] (--out: the ZIP)
+    bool record_session = false;            // --record-session: the session recorder for this launch
+    std::string export_session;
 };
 
 std::string g_home;
@@ -309,9 +314,10 @@ constexpr const char* kChooseFolder = "Choose your Sonic Adventure 2 folder (the
 int usage() {
     std::fprintf(stderr,
                  "usage: sa2recomp [--host sdl3-gpu|dxvk-native] [--no-pace] [--no-sound] [--no-verify]"
-                 " [--out DIR] [--no-widescreen | --play-res WxH] [--player-arg ARG ...]\n"
+                 " [--out DIR] [--no-widescreen | --play-res WxH] [--player-arg ARG ...] [--record-session]\n"
                  "       sa2recomp --selftest [--frames N] [--record R.runrec] [--host H] [--out DIR]"
-                 " [--timeout S] [--video-driver NAME] [--pace] [--no-sound] [--no-verify]\n");
+                 " [--timeout S] [--video-driver NAME] [--pace] [--no-sound] [--no-verify]\n"
+                 "       sa2recomp --debug-export [SESSION] [--out FILE.zip]\n");
     return 2;
 }
 
@@ -1136,6 +1142,93 @@ std::string first_run_json(const FirstRun& fr) {
     return f.done();
 }
 
+// ---------------------------------------------------------------- the session recorder
+
+// The recorder is off unless asked for, so a launch writes what it always has: --record-session
+// turns it on for one launch, and SA2_RECORD_SESSION=1 in share/game.env for every launch (a
+// launch from a desktop menu takes no flag). The launcher reads that line and does not hand it to
+// the game. On, the session folder also keeps the saves and the config before and after the game,
+// session-info.json and the pads by XInput call (pad.log), which a Debug Export carries and
+// tools/s7/replay_export.py replays from; off, a Debug Export still holds the session's logs and
+// the saves at export time, and says the session cannot be replayed.
+
+// What the recorder's text and Debug Export write in place of a person's paths: the session folder
+// as <session>, the game folder <game>, the write root <overlay>, the data folder <data> and the
+// home folder ~ (the longest match first, sa2s::redact).
+sa2s::KV recorder_subs(const std::string& session, const std::string& read_root, const std::string& write_root) {
+    sa2s::KV subs = {{session, "<session>"}, {read_root, "<game>"}, {write_root, "<overlay>"}};
+    const std::string data = parent_dir(write_root);
+    if (!data.empty() && session.compare(0, data.size(), data) == 0) subs.push_back({data, "<data>"});
+    if (!g_home.empty()) subs.push_back({g_home, "~"});
+    return subs;
+}
+
+// Before the game: start-saves/, start-config/, game-env.txt and session-info.json
+// (sa2_session_files.h). A snapshot that fails is said, and the session goes on.
+void record_session_start(const std::string& session, const std::string& read_root, const std::string& write_root,
+                          bool hide_read_saves, const std::vector<std::pair<std::string, std::string>>& game_env,
+                          const sa2s::KV& subs, const sa2s::KV& run, const sa2s::KV& build) {
+    const sa2s::Snapshot saves =
+        sa2s::snapshot(read_root, write_root, sa2s::kSaveDir, hide_read_saves, session + "/start-saves");
+    const sa2s::Snapshot config = sa2s::snapshot(read_root, write_root, sa2s::kConfigDir, false, session + "/start-config");
+    for (const sa2s::Snapshot* s : {&saves, &config})
+        if (!s->error.empty()) say("the session recorder: %s", s->error);
+    sa2p::write_file_atomic(session + "/game-env.txt", sa2s::env_text(game_env, subs));
+    sa2s::KV info = {{"schema", "sa2-session-info/v1"}};
+    info.insert(info.end(), run.begin(), run.end());
+    info.push_back({"build:", sa2s::json_object(build)});
+    info.push_back({"platform:", sa2s::json_object(sa2s::host_facts())});
+    info.push_back({"start_saves", std::to_string(saves.files) + " files"});
+    info.push_back({"read_root_saves_hidden", hide_read_saves ? "true" : "false"});
+    sa2p::write_file_atomic(session + "/session-info.json", sa2s::json_object(info) + "\n");
+}
+
+// After the game: end-saves/ and end-config/.
+void record_session_end(const std::string& session, const std::string& read_root, const std::string& write_root,
+                        bool hide_read_saves) {
+    const sa2s::Snapshot saves =
+        sa2s::snapshot(read_root, write_root, sa2s::kSaveDir, hide_read_saves, session + "/end-saves");
+    const sa2s::Snapshot config = sa2s::snapshot(read_root, write_root, sa2s::kConfigDir, false, session + "/end-config");
+    for (const sa2s::Snapshot* s : {&saves, &config})
+        if (!s->error.empty()) say("the session recorder: %s", s->error);
+}
+
+// --debug-export [SESSION] [--out FILE.zip] (sa2_debug_export.h): the installation's config names
+// the data folder (the overlay's parent, which holds sessions/); with none, the data folder this
+// host's convention names.
+int debug_export_main(const Options& o) {
+    g_home = sa2p::home_dir();
+    Sa2Config cfg;
+    std::string text, error;
+    const std::string cfg_path = sa2_config_path();
+    const bool have_cfg = !cfg_path.empty() && sa2p::read_file(cfg_path, text) && sa2_config_parse(text, cfg, &error);
+    const std::string data = have_cfg ? parent_dir(cfg.overlay) : sa2p::data_home() + "/sa2recomp";
+    sa2x::Request r;
+    r.sessions_root = data + "/sessions";
+    r.session = o.export_session;
+    r.out = o.out;
+    if (have_cfg) {
+        r.read_root = cfg.read_root;
+        r.overlay = cfg.overlay;
+        r.install_cfg = cfg_path;
+    }
+    r.release = parent_dir(sa2l::self_dir());
+    r.subs = {{data, "<data>"}};
+    if (have_cfg) {
+        r.subs.push_back({cfg.read_root, "<game>"});
+        r.subs.push_back({cfg.overlay, "<overlay>"});
+    }
+    if (!g_home.empty()) r.subs.push_back({g_home, "~"});
+    const sa2x::Result res = sa2x::debug_export(r);
+    if (!res.ok) {
+        say("--debug-export: %s", res.message);
+        return 5;
+    }
+    std::fprintf(stdout, "sa2recomp: Debug Export of session %s: %s (%s)\n", res.session.c_str(),
+                 home_rel(res.zip).c_str(), res.message.c_str());
+    return 0;
+}
+
 int launch(int argc, char** argv) {
     std::vector<std::string> args = sa2p::utf8_args(argc, argv);
     int platform_code = 0;
@@ -1167,12 +1260,18 @@ int launch(int argc, char** argv) {
             }
             o.player_args.push_back(args[++i]);
         }
+        else if (a == "--record-session") o.record_session = true;
+        else if (a == "--debug-export") {
+            o.debug_export = true;
+            if (i + 1 < args.size() && args[i + 1].compare(0, 2, "--") != 0) o.export_session = args[++i];
+        }
         else if (a == "--help" || a == "-h") return usage();
         else {
             say("unknown argument %s", a);
             return usage();
         }
     }
+    if (o.debug_export) return debug_export_main(o);
     g_play = !o.selftest;
     const Host* host = nullptr;
     for (const Host& h : kHosts)
@@ -1560,6 +1659,34 @@ int launch(int argc, char** argv) {
         say("%s", said);
     }
     if (!launcher_tweaks.line.empty()) say("%s", launcher_tweaks.line);
+    // The session recorder (host/launch/sa2_session_files.h): the saves and the config the game
+    // will see, its settings and the build, before it starts, so the session replays from its own
+    // folder (tools/s7/replay_export.py); and the pads it is given, by XInput call
+    // (SA2_INPUT_PAD_LOG, runtime/sa2_dinput.h "Gamepad replay"). The selftest's game hides the
+    // game folder's saves, so its snapshot does too.
+    const std::string* record_asked = genv.find("SA2_RECORD_SESSION");
+    const bool recording = o.record_session || (record_asked && *record_asked == "1");
+    genv.drop("SA2_RECORD_SESSION");
+    say("session recorder: %s", recording ? (o.record_session ? "on (--record-session)" : "on (SA2_RECORD_SESSION=1)")
+                                          : "off (--record-session or SA2_RECORD_SESSION=1 in share/game.env records)");
+    const sa2s::KV subs = recorder_subs(session, cfg.read_root, write_root);
+    if (recording) genv.set("SA2_INPUT_PAD_LOG", session + "/pad.log");
+    if (recording) record_session_start(session, cfg.read_root, write_root, o.selftest, genv.kv, subs,
+                         {{"runner", "host/launch"},
+                          {"mode", o.selftest ? "selftest" : "play"},
+                          {"host", host->id},
+                          {"started", started},
+                          {"paced", paced ? "true" : "false"},
+                          {"sound", o.sound ? "true" : "false"},
+                          {"widescreen", widescreen},
+                          {"player_args", sa2s::redact(list(o.player_args), subs)}},
+                         {{"launcher_sha256", file_sha(bin + "/" + exe_name("sa2recomp"))},
+                          {"release_manifest_sha256", file_sha(release + "/release.manifest")},
+                          {"game_sha256", file_sha(game_bin)},
+                          {"player", host->binary},
+                          {"player_sha256", file_sha(player_bin)},
+                          {"game_env_sha256", file_sha(env_file)},
+                          {"install_table", table.id}});
     // A console made for this launch alone (Windows, a double-click) goes before the game's window
     // comes; a shell's, or redirected output, stays (sa2l::release_own_console).
     const std::string console = o.selftest ? "" : sa2l::release_own_console();
@@ -1749,6 +1876,8 @@ int launch(int argc, char** argv) {
         std::fprintf(stderr, "sa2recomp: %s\n", line.c_str());
         said_line(line);
     }
+    // The saves and config after the game (the recorder), now that nothing writes them.
+    if (recording) record_session_end(session, cfg.read_root, write_root, o.selftest);
     // The player reads the stream to its END; cancelled only if it has not finished.
     bool player_cancelled = false;
     if (!wait_or_cancel(player, o.selftest ? kSelftestFeedGrace : kFeedGrace)) {
@@ -1878,6 +2007,7 @@ int launch(int argc, char** argv) {
     j.raw("first_run", first_run_json(first));
     j.s("console", console);
     j.s("widescreen", widescreen);
+    j.b("session_recorder", recording);
     j.s("tweaks", tweaks);
     {
         Json g;

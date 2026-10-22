@@ -12,15 +12,16 @@ with the same rules:
   bytes), by name without regard to case, at exactly that size. Anything else is refused. With the
   game executable at hand (the config's exe, or --exe), an ALF's checksum is also checked
   ("The Chao World checksum" below); a mismatch refuses the file unless --force.
-* An import takes save files, or one ZIP: a zipped SAVEDATA folder, or any ZIP whose save files
-  have one copy each. It replaces only the saves it brings.
+* An import takes save files, or one ZIP: a Debug Export (sa2recomp --debug-export) with its
+  session/end-saves/ and session/start-saves/ (the end by default, the start with --from start), a zipped SAVEDATA
+  folder, or any ZIP whose save files have one copy each. It replaces only the saves it brings.
 * Every import and restore first copies the overlay's saves to
   $XDG_DATA_HOME/sa2recomp/save-backups/<UTC time>/ (empty when there were none); the newest 10
   are kept. A restore makes the overlay's SAVEDATA exactly the backup's.
 
 Usage:
   tools/saves.py show
-  tools/saves.py import FILE... [--force]
+  tools/saves.py import FILE... [--from end|start] [--force]
   tools/saves.py export OUT.zip
   tools/saves.py backups
   tools/saves.py restore BACKUP
@@ -177,7 +178,7 @@ def checksum_note(name: str, data: bytes, exe: Path | None) -> tuple[str | None,
     return (None if calc == stored else f"{name}: checksum {stored:#010x} stored, {calc:#010x} computed"), None
 
 
-def read_pick(paths: list[Path]) -> tuple[dict[str, bytes], list[str]]:
+def read_pick(paths: list[Path], frm: str) -> tuple[dict[str, bytes], list[str]]:
     """The saves the paths hold, by name, and what was skipped."""
     saves: dict[str, bytes] = {}
     skipped: list[str] = []
@@ -187,6 +188,12 @@ def read_pick(paths: list[Path]) -> tuple[dict[str, bytes], list[str]]:
     if zips:
         with zipfile.ZipFile(zips[0]) as z:
             entries = [i for i in z.infolist() if not i.is_dir() and kind(i.filename.rsplit("/", 1)[-1])]
+            export = [i for i in entries if i.filename.startswith(("session/start-saves/", "session/end-saves/"))]
+            if export:
+                want = f"session/{frm}-saves/"
+                entries = [i for i in export if i.filename.startswith(want)]
+                if not entries:
+                    raise Refused(f"this Debug Export has no {want}")
             for i in entries:
                 name = i.filename.rsplit("/", 1)[-1]
                 # The size the entry declares first: zipfile reads an entry only up to it, so a
@@ -254,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("show", help="the saves the game sees, and where each comes from")
     im = sub.add_parser("import")
     im.add_argument("files", nargs="+", type=Path)
+    im.add_argument("--from", dest="frm", choices=["end", "start"], default="end")
     im.add_argument("--force", action="store_true", help="import an ALF whose checksum does not match")
     ex = sub.add_parser("export")
     ex.add_argument("out", type=Path)
@@ -279,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
                 note = not_a_save(f.name, f.stat().st_size) or problem or unchecked or "ok"
                 print(f"{name}\t{f.stat().st_size}\t{where}\t{note}")
         elif a.cmd == "import":
-            saves, skipped = read_pick(a.files)
+            saves, skipped = read_pick(a.files, a.frm)
             for s in skipped:
                 print(f"skipped: {s}")
             if not saves:

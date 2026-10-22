@@ -37,9 +37,10 @@ import java.util.zip.ZipOutputStream;
  * save. The ALF's checksum is not checked here (its table is in the executable, which the app
  * does not read; tools/saves.py checks it on a desktop).
  *
- * What can be imported. One or more save files picked at once, or a ZIP holding them: a zipped
- * SAVEDATA folder, or any ZIP whose save files have one copy each. An import replaces only the
- * files it brings; the overlay's other saves stay.
+ * What can be imported. One or more save files picked at once, or a ZIP holding them: a Debug
+ * Export (DebugExport, sa2recomp --debug-export) with its session/start-saves/ and
+ * session/end-saves/ (one of which the caller chooses), a zipped SAVEDATA folder, or any ZIP whose save files have one copy each. An import replaces only
+ * the files it brings; the overlay's other saves stay.
  *
  * Backups. Before an import or a restore, every save in the overlay's SAVEDATA is copied to
  * <files>/save-backups/<UTC time>/ (an empty folder when there were none, so a restore can put the
@@ -87,11 +88,13 @@ final class SaveTools {
         Found(String name, String from, byte[] data) { this.name = name; this.from = from; this.data = data; }
     }
 
-    /** What a pick holds: the saves found, and what was refused. */
+    /** What a pick holds: the saves found, and for a Debug Export the two sets it carries. */
     static final class Picked {
         final List<Found> saves = new ArrayList<>();
+        final List<Found> start = new ArrayList<>(), end = new ArrayList<>();
         final List<String> refused = new ArrayList<>();
         String error;
+        boolean isExport() { return !start.isEmpty() || !end.isEmpty(); }
     }
 
     /** Reads the picked documents: save files, or one ZIP. */
@@ -113,7 +116,7 @@ final class SaveTools {
         } catch (Exception e) {
             p.error = "Could not read the pick: " + e.getMessage();
         }
-        if (p.error == null && p.saves.isEmpty())
+        if (p.error == null && p.saves.isEmpty() && !p.isExport())
             p.error = p.refused.isEmpty() ? "No save files were found." : "No save files were found: " + p.refused.get(0);
         return p;
     }
@@ -128,9 +131,14 @@ final class SaveTools {
                 byte[] data = readAll(z);
                 String why = notASave(name, data.length);
                 if (why != null) { p.refused.add(path + ": " + why); continue; }
-                byName.computeIfAbsent(name, k -> new ArrayList<>()).add(new Found(name, path, data));
+                Found f = new Found(name, path, data);
+                // A Debug Export (session/start-saves/, session/end-saves/): its two sets, chosen between.
+                if (path.startsWith("session/start-saves/")) p.start.add(f);
+                else if (path.startsWith("session/end-saves/")) p.end.add(f);
+                else byName.computeIfAbsent(name, k -> new ArrayList<>()).add(f);
             }
         }
+        if (p.isExport()) return;
         for (Map.Entry<String, List<Found>> e : byName.entrySet()) {
             if (e.getValue().size() > 1) {
                 p.error = "The ZIP holds " + e.getKey() + " more than once (" + e.getValue().get(0).from + ", "

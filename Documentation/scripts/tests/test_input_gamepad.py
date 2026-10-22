@@ -242,6 +242,42 @@ static void waited(void) {
     sa2_di_input_stats st; sa2_dinput_input_stats_get(&st);
     printf("waited %u\n", st.pad_waited_ms);
 }
+/* Gamepad replay: one session's calls, with its records (w >= 0, the FIFO session that
+ * writes the pad log) or without (w < 0, the replay of that log as a pad script). */
+static void padseq(int w, uint32_t k) {
+    const uint8_t enter[] = {0x1C};
+    pad p[4] = {{0}};
+    if (w >= 0) padrec(w, 0, p, 0x50324153);                /* no pad at boot: stand-ins */
+    boot_scan();
+    poll_keys(k);
+    frame(0);
+    if (w >= 0) {
+        p[0] = (pad){1, 0x0010, 0, 0, 0, 0, 0, 0};          /* a pad comes, START held */
+        padrec(w, 1, p, 0x50324153);
+        keyrec(w, 0, enter, 1);
+    }
+    poll_keys(k);                                            /* reads both; the pad waits */
+    frame(0); frame(1);
+    if (w >= 0) {
+        p[0] = (pad){1, 0x1000, 0, 255, -32768, 32767, 100, -100};
+        padrec(w, 2, p, 0x50324153);
+        p[0].b = 0x1010;                                     /* two changes before one call */
+        padrec(w, 3, p, 0x50324153);
+    }
+    frame(0);
+    rescan();
+    poll_keys(k);
+    if (w >= 0) { p[0] = (pad){0}; padrec(w, 4, p, 0x50324153); }
+    frame(0); rescan();
+    poll_keys(k);
+    later();
+}
+static void padstats(void) {
+    sa2_di_input_stats st; sa2_dinput_input_stats_get(&st);
+    printf("padreplay calls=%u log_lines=%u script_lines=%u applied=%u desyncs=%u first=%u\n",
+           st.xi_calls, st.pad_log_lines, st.pad_script_lines, st.pad_script_applied,
+           st.pad_script_desyncs, st.pad_script_first_desync);
+}
 
 int main(int argc, char **argv) {
     if (argc != 3) return 2;
@@ -251,8 +287,22 @@ int main(int argc, char **argv) {
     snprintf(log, sizeof log, "%s/input.log", dir);
     unsetenv("SA2_DEVICE_PROFILE"); unsetenv("SA2_DINPUT_BREAK"); unsetenv("SA2_INPUT_DI_SCRIPT");
     unsetenv("SA2_INPUT_DI_SOURCE"); unsetenv("SA2_INPUT_DI_LOG"); unsetenv("SA2_XINPUT_PAD");
-    unsetenv("SA2_INPUT_PAD_HOTPLUG");
+    unsetenv("SA2_INPUT_PAD_HOTPLUG"); unsetenv("SA2_INPUT_PAD_LOG"); unsetenv("SA2_INPUT_PAD_SCRIPT");
     setenv("SA2_DINPUT_DEVICE", "1", 1);
+    char padlog[600], padlog2[600];
+    snprintf(padlog, sizeof padlog, "%s/pad.log", dir);
+    snprintf(padlog2, sizeof padlog2, "%s/pad-replay.log", dir);
+    if (!strcmp(mode, "padrec") || !strcmp(mode, "padrec-script")) {
+        setenv("SA2_INPUT_PAD_LOG", padlog, 1);
+        setenv("SA2_INPUT_PAD_WAIT_MS", "0", 1);
+    }
+    if (!strncmp(mode, "script-pad", 10)) {
+        setenv("SA2_INPUT_DI_SCRIPT", log, 1);              /* the recording's keyboard log */
+        setenv("SA2_INPUT_PAD_SCRIPT", padlog, 1);
+        setenv("SA2_INPUT_PAD_LOG", padlog2, 1);
+    }
+    if (!strcmp(mode, "unset-padlog")) setenv("SA2_INPUT_PAD_LOG", padlog, 1);
+    if (!strcmp(mode, "padrec-script")) setenv("SA2_INPUT_PAD_SCRIPT", padlog2, 1);
     const int fifo = strncmp(mode, "script", 6) && strncmp(mode, "unset", 5);
     if (fifo) {
         if (mkfifo(path, 0600)) return 2;
@@ -419,6 +469,17 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (!strcmp(mode, "badhotplug")) return 0;
+    if (!strcmp(mode, "padrec") || !strcmp(mode, "script-padplay")) {
+        padseq(w, k);
+        padstats();
+        return 0;
+    }
+    if (!strcmp(mode, "script-paddesync")) {
+        poll_keys(k);                                        /* one poll the session never had */
+        padseq(-1, k);
+        padstats();
+        return 0;
+    }
     if (!strcmp(mode, "badconn")) {
         pad p[4] = {{0}}; p[1].c = 2;
         padrec(w, 0, p, 0x50324153);
@@ -904,3 +965,84 @@ def test_key_seqs_tile_from_0_with_pad_records_between_them(sender_driver, tmp_p
     got = json.loads("{" + line.strip().rstrip(",") + "}")["host_input"]
     assert (got["records_written"], got["last_seq"]) == (4, 3)
     assert got["pads"]["records_written"] == 5
+
+
+# ---------------------------------------------------------------- gamepad replay
+
+def answers(out: list[str]) -> list[str]:
+    """The game's view of a run: every XInput and keyboard answer and the stand-in counters,
+    without the lines only a FIFO has (its source's name, the poll observer)."""
+    return [l for l in out if not l.startswith(("source ", "seen ", "padreplay "))]
+
+
+def test_a_pad_log_replays_every_xinput_answer_of_its_session(runtime_driver, tmp_path):
+    """SA2_INPUT_PAD_LOG (runtime/sa2_dinput.h, "Gamepad replay") keys each change of a slot to
+    the XInput call that first answered from it; replayed as SA2_INPUT_PAD_SCRIPT beside the
+    keyboard's log as SA2_INPUT_DI_SCRIPT, with no FIFO, the same calls get the same answers
+    byte for byte (packets, stand-ins, the rescan's hiding), and the replay's own pad log is the
+    session's line for line."""
+    rec, rec_err = drive(runtime_driver, "padrec", tmp_path)
+    assert "made pad objects for slots 0xf, 4 of them for pads not connected yet" in rec_err
+    assert rec[0] == "source fifo"
+    log = (tmp_path / "pad.log").read_text().splitlines()
+    assert log[0].startswith("# SA2_INPUT_PAD_LOG of a FIFO source: ")
+    assert log[1] == "mode 1 1"                              # hotplug on, stand-ins answered
+    changes = [l for l in log[2:] if not l.startswith("#")]
+    assert changes == [
+        "13 2 0 1 0x0010 0 0 0 0 0 0",       # read at poll 1, first answered at call 13 (after 2 polls)
+        "16 2 0 1 0x1000 0 255 -32768 32767 100 -100",      # two changes before one call: both
+        "16 2 0 1 0x1010 0 255 -32768 32767 100 -100",
+        "22 3 0 0 0x0000 0 0 0 0 0 0",                      # unplugged
+    ], log
+    assert log[-1].startswith("# closed at exit: 27 XInput calls, 4 change lines, 0 changes no call")
+    keys = (tmp_path / "input.log").read_text()
+    assert "(gamepads replay from SA2_INPUT_PAD_LOG)" in keys
+    play, err = drive(runtime_driver, "script-padplay", tmp_path)
+    assert err == rec_err
+    assert play[0] == "source script"
+    assert answers(play) == answers(rec)
+    assert "padreplay calls=27 log_lines=4 script_lines=4 applied=4 desyncs=0 first=0" in play
+    again = (tmp_path / "pad-replay.log").read_text().splitlines()
+    assert again[0].startswith("# SA2_INPUT_PAD_LOG of a script source: ")
+    assert again[1:-1] == log[1:-1]
+
+
+def test_a_pad_replay_off_its_sessions_path_is_counted_and_said(runtime_driver, tmp_path):
+    drive(runtime_driver, "padrec", tmp_path)
+    out, err = drive(runtime_driver, "script-paddesync", tmp_path)
+    err = err.split("\n", 1)[1]                              # after the scan's own line
+    assert "padreplay calls=27 log_lines=4 script_lines=4 applied=4 desyncs=4 first=13" in out
+    assert err == ("sa2 dinput: SA2_INPUT_PAD_SCRIPT: XInput call 13 comes after 3 keyboard polls, "
+                   "the session's after 2: the replay has left its path\n")
+
+
+def test_without_the_pad_variables_the_fifo_sessions_bytes_are_as_before(runtime_driver, tmp_path):
+    """Off means off: the "later" session's answers and its keyboard log's closing line do not
+    change when no pad log is asked for, and no pad log is written."""
+    out, _ = drive(runtime_driver, "later", tmp_path)
+    assert not (tmp_path / "pad.log").exists()
+    assert (tmp_path / "input.log").read_text().rstrip().endswith("(gamepads are not replayed from this log)"
+                                                                  "; pad objects for slots 0xf, 23 XInput "
+                                                                  "answers standing in for a pad not "
+                                                                  "connected, 0 rescan answers hiding one "
+                                                                  "with no object")
+
+
+@pytest.mark.parametrize("mode,body,words", [
+    ("unset-padlog", None, "TRAP 1 SA2_INPUT_PAD_SCRIPT or SA2_INPUT_PAD_LOG is set and neither "
+                           "SA2_INPUT_DI_SCRIPT nor SA2_INPUT_DI_SOURCE is"),
+    ("padrec-script", "mode 1 1\n", "TRAP 1 SA2_INPUT_PAD_SCRIPT is set without SA2_INPUT_DI_SCRIPT"),
+    ("script-padplay", "mode 1 1\n5 1 0 1 0x0010 0 0 0 0 0 0\n4 1 0 0 0x0000 0 0 0 0 0 0\n",
+     "TRAP 1 SA2_INPUT_PAD_SCRIPT line 3: call 4 comes after call 5"),
+    ("script-padplay", "5 1 0 1 0x0C00 0 0 0 0 0 0\n",
+     "TRAP 1 SA2_INPUT_PAD_SCRIPT line 1: the buttons \"0x0C00\" are not 0x and hex within 0xF3FF"),
+    ("script-padplay", "5 1 4 1 0x0000 0 0 0 0 0 0\n",
+     "TRAP 1 SA2_INPUT_PAD_SCRIPT line 1: the call, polls, slot (0 to 3) or connected (0 or 1)"),
+    ("script-padplay", "mode 2 1\n", "TRAP 1 SA2_INPUT_PAD_SCRIPT line 1: a mode line is"),
+])
+def test_pad_replay_refuses_what_it_cannot_carry_at_configuration(runtime_driver, tmp_path, mode, body, words):
+    (tmp_path / "input.log").write_text("")
+    if body is not None:
+        (tmp_path / ("pad-replay.log" if mode == "padrec-script" else "pad.log")).write_text(body)
+    out, _ = drive(runtime_driver, mode, tmp_path, rc=3)
+    assert out[0].startswith(words), out

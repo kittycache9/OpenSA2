@@ -63,5 +63,12 @@
             android:preferMinimalPostProcessing="true"
             android:alwaysRetainTaskState="true"
             android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation" />
+
+        <!-- The Debug Export's ZIPs for the share sheet (ExportProvider): not exported; the app
+             picked in the share sheet reads the one URI the intent grants it. -->
+        <provider android:name=".ExportProvider"
+            android:authorities="com.sa2recomp.app.exports"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

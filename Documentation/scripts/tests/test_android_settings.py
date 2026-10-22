@@ -9,7 +9,8 @@ tweaks turned on, in GameSettings.TWEAKS's order, otherwise. TWEAKS is the one p
 named on Android: the Tweaks card makes a switch of each line (test_tweaks.py holds the lines to
 runtime/sa2_tweaks.h's list), shown under GameSettings.TWEAK_GROUPS's headings with each group
 in the table's own order (GameSettings.tweakGroups), while SA2_TWEAKS and the preferences keep the names. A small Java driver runs GameSettings here against android.jar; the
-settings screen (Sa2SettingsActivity, with Ui, the layout editor it opens and SaveTools) is compiled beside
+settings screen (Sa2SettingsActivity, with Ui, the layout editor it opens, SaveTools and the Debug card's
+DebugExport with what it reads) is compiled beside
 it, so a card that no longer builds fails here, not in the APK's build.
 
 Needs the pinned JDK (tools/pins.json java) and the Android SDK's android.jar; it is skipped
@@ -70,6 +71,20 @@ public class SettingsDriver {
 """
 
 
+# Sa2SetupActivity.readText alone (the real class extends SDL's activity, which the tree does not hold).
+SETUP_STANDIN = """package com.sa2recomp.app;
+final class Sa2SetupActivity {
+    static String readText(java.io.File f) {
+        try {
+            return f.isFile() ? new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8") : null;
+        } catch (java.io.IOException e) {
+            return null;
+        }
+    }
+}
+"""
+
+
 @pytest.fixture(scope="module")
 def java(tmp_path_factory):
     missing = [str(p) for p in (JDK / "bin/javac", ANDROID_JAR) if not p.exists()]
@@ -79,8 +94,13 @@ def java(tmp_path_factory):
     src = d / "java/com/sa2recomp/app"
     src.mkdir(parents=True)
     (src / "SettingsDriver.java").write_text(DRIVER)
-    for name in ("GameSettings", "Sa2SettingsActivity", "Ui", "Sa2LayoutActivity", "SaveTools"):
+    for name in ("GameSettings", "Sa2SettingsActivity", "Ui", "Sa2LayoutActivity", "SaveTools", "DebugExport",
+                 "CrashReport", "Tombstone", "ExportProvider", "VulkanSupport"):
         shutil.copy(APP / f"{name}.java", src)
+    # The Debug card's export reads the crash report's redaction (CrashReport), which reads one helper
+    # of the setup screen; the setup screen itself needs SDL's Java, which is not in the tree. So the
+    # helper alone stands in for it here, as Sa2SetupActivity.readText reads.
+    (src / "Sa2SetupActivity.java").write_text(SETUP_STANDIN)
     done = subprocess.run([str(JDK / "bin/javac"), "--release", "11", "-nowarn", "-classpath", str(ANDROID_JAR),
                            "-d", str(d / "classes"), *map(str, src.glob("*.java"))], capture_output=True, text=True)
     assert done.returncode == 0, done.stdout + done.stderr
