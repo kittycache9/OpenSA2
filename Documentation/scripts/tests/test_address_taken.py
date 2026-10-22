@@ -164,3 +164,23 @@ def test_without_decoding_admitted_code_the_stored_callback_is_not_evidence():
     before 0x401400 is admitted and decoded its relocation says nothing."""
     r = run(lambda x: x != 0x402004)
     assert r["verdict"][0x401500] == "no address taken"
+
+
+def test_a_function_inside_a_map_functions_size_after_padding_is_admitted():
+    """The Chao race camera (0x00538110): a map function's size counts its body's
+    bytes wherever they are, so start + size can cover the padded function after
+    it and end inside an instruction of the one after that. That instruction,
+    decoded from the first function, is cut off and invalid; it must not class
+    the relocation before the second function's own decode does, and the padded
+    function is weighed although it lies inside the first one's size."""
+    a, t, b = 0x401000, 0x401010, 0x401020
+    img = bytearray(b"\xcc" * 0x3000)
+    img[a - BASE] = 0xC3
+    img[t - BASE] = 0xC3
+    put = b"\xc7\x40\x18" + le(t) + b"\xc3"      # mov dword ptr [eax+18h], offset t
+    img[b - BASE:b - BASE + len(put)] = put
+    r = AT.analyse(bytes(img), [b + 3], [(a, b + 4 - a), (b, 0x10)], [], CODE, DATA,
+                   base=BASE, modules=[(a, t), (b, b + 0x10)])
+    assert r["targets"][t] == {"imm": [(b + 3, b)]}
+    assert r["verdict"][t] == "admitted"
+    assert r["boundary"][t] == "int3 padding"

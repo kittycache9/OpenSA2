@@ -17,10 +17,10 @@
  ],
  "arms_tag": "next",
  "counts": {
-  "compiled": 5644,
-  "guest_bytes": 17542958,
-  "lifted": 5644,
-  "rows": 5644
+  "compiled": 5645,
+  "guest_bytes": 17543086,
+  "lifted": 5645,
+  "rows": 5645
  },
  "lift_tag": "next",
  "rows": [
@@ -15605,6 +15605,24 @@
    },
    "va": "0x00538030",
    "why": "missing_block_target in dispatch_surface.next+allarms.txt: a dispatch target the whole-image lift produced no module for"
+  },
+  {
+   "bytes": 128,
+   "compiled": true,
+   "declares_sub": [
+    "sub_4ebae0",
+    "sub_55aeb0"
+   ],
+   "end": "0x005381e0",
+   "folded": true,
+   "lifted": true,
+   "owner": {
+    "end": "0x005381e0",
+    "name": "ALR_CameraManager",
+    "start": "0x00538110"
+   },
+   "va": "0x00538160",
+   "why": "reloc_address_taken in address_taken.txt: a base relocation names it, as the immediate operand of the instruction at 0x0053822f; no relocation reads it as data; it follows int3 padding and decodes to a ret or jmp"
   },
   {
    "bytes": 208,

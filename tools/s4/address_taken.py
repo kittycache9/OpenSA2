@@ -39,7 +39,11 @@ offsets:
   table    a relocated code pointer in code with another at +-4: a jump table's
            entry, whatever a linear decode made of its bytes.
   other    anything else in code: a field straddled by a desynchronised decode,
-           bytes nothing decodes. Not evidence either way.
+           a table's bytes decoded as code. Not evidence either way.
+
+An invalid decode classes nothing, so it cannot claim a relocation before the
+decode that holds it whole: a decode cut off at the end of its range (a map
+function's size, below), or bytes nothing decodes.
 
 A target is admitted when some relocation takes its address (imm or data), none
 reads it (disp), something ends just before it -- int3 padding, which is how
@@ -49,6 +53,15 @@ jump table -- and its code decodes to a `ret` or `jmp` with no invalid
 instruction. Code is decoded over the map's functions, the lifted extras and
 every admitted target, the last over the range lift_extra.py would lift it
 over, round after round until a round admits exactly what the one before did.
+
+A map function's size is the bytes in its body, which need not be contiguous:
+ALR_CameraManager (0x00538110) is 0x43 bytes of its own and the 0xE0 at
+0x00538030 it tail-jumps to, 291 in all, so start + size reaches past the next
+function, the Chao race camera's delete routine at 0x00538160, and into the
+one after. A target inside a map function's start + size is therefore still
+weighed when int3 padding ends just before it, which ends a function and
+starts none. Without this, 0x00538160 was never lifted, and finishing a Chao
+race ended the game with a function table miss there.
 Rows this tool lifted before that the criteria now refuse are listed, and
 `--lift` refuses until they are dropped.
 
@@ -74,7 +87,7 @@ sys.path.insert(0, str(HERE))
 import common as C  # noqa: E402
 
 import pefile  # noqa: E402
-from iced_x86 import Decoder, FlowControl  # noqa: E402
+from iced_x86 import Code, Decoder, FlowControl  # noqa: E402
 
 PY = str(ROOT / ".venv" / "bin" / "python")
 TAG = "next+allarms"
@@ -193,6 +206,8 @@ def analyse(img: bytes, relocs: list[int], ents: list[tuple[int, int]],
         k = 0
         dec = Decoder(32, img[a - base:a - base + n], ip=a)
         for ins in dec:
+            if ins.code == Code.INVALID:
+                continue
             end = ins.ip + ins.len
             while k < len(want) and want[k] < ins.ip:
                 k += 1
@@ -259,7 +274,7 @@ def analyse(img: bytes, relocs: list[int], ents: list[tuple[int, int]],
         targets: dict[int, dict[str, list[tuple[int, int]]]] = {}
         for r in relocs:
             v = value(r)
-            if not section(v) or v in size or in_map(v):
+            if not section(v) or v in size or (in_map(v) and img[v - base - 1] != 0xCC):
                 continue
             kind, where = ("data", r) if in_data(r) else use.get(r, ("other", r))
             targets.setdefault(v, {}).setdefault(kind, []).append((r, where))
