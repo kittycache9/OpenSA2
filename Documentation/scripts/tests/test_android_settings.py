@@ -211,9 +211,9 @@ def test_the_tweaks_card_shows_the_groups_and_their_tweaks_in_the_tables_order(j
         assert [name for name, _ in tweaks] == table[heading], heading
     names = [name for _, tweaks in order for name, _ in tweaks]
     assert sorted(names) == sorted(line.split("|")[0] for line in java("list"))
-    assert dict(order)["Gameplay and assists"][:3] == [
+    assert dict(order)["Gameplay and assists"][:4] == [
         ("infinite-lives", "Infinite lives"), ("stage-select-all", "Show all stages in Stage Select"),
-        ("all-upgrades", "All upgrades")]
+        ("character-select", "Pick the character in Stage Select"), ("all-upgrades", "All upgrades")]
     assert dict(order)["Story and presentation"][:3] == [
         ("skip-intro", "Skip intro"), ("all-events-skippable", "Skip any cutscene"),
         ("no-event-bars", "Remove cutscene black bars")]
