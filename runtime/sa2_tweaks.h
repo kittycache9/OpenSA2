@@ -218,6 +218,7 @@
     X(SA2_TWEAK_SPIN_DASH_FAST, "spin-dash-fast", "spin dash charges in 10 frames", "the spin dash starts after 10 frames held instead of 24; a short press still somersaults") \
     X(SA2_TWEAK_STAGE_SELECT_ALL, "stage-select-all", "all stages in Stage Select", "every stage shows in Stage Select, without clearing it in story mode first") \
     X(SA2_TWEAK_START_ASSISTS, "start-assists", "start assists", "every level starts with a magnetic barrier, invincibility and the character's upgrades (the upgrades are not saved; what you collect or clear with them is)") \
+    X(SA2_TWEAK_START_IN_CHAO_WORLD, "start-in-chao-world", "start in Chao World", "the first time the main menu would show after File Select loads your save, the game goes straight to the Chao World lobby instead, once each time it starts; a save that has not opened Chao World gets the main menu") \
     X(SA2_TWEAK_SYNC_LOAD, "sync-load", "loads in place", "a load reads its files at once instead of drawing a loading-screen frame for each, so the title and stages come sooner; the Now Loading animation stands still meanwhile") \
     X(SA2_TWEAK_VICTORY_POWERUPS, "victory-powerups", "powerups kept on the victory screen", "barriers and invincibility stay on the victory pose instead of vanishing") \
     X(SA2_TWEAK_WALKER_CANNON_FIX, "walker-cannon-fix", "walker-cannon fix", "a Chao Walker given the Mech's cannon upgrade by a cheat no longer crashes the game") \
