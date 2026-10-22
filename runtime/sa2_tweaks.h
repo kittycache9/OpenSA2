@@ -216,6 +216,7 @@
     X(SA2_TWEAK_RIVAL_UPGRADES, "rival-upgrades", "rival upgrades shared", "Shadow, Rouge and Mech Tails share the upgrades Sonic, Knuckles and Eggman have found") \
     X(SA2_TWEAK_SHADOW_LIGHTDASH_FX, "shadow-lightdash-fx", "shadow lightdash trail", "Shadow's light dash leaves the see-through after-image trail that Sonic's does, drawn with Shadow's own model") \
     X(SA2_TWEAK_SKIP_INTRO, "skip-intro", "intro skipped", "the game starts at the title screen, without the logos and the opening cutscene") \
+    X(SA2_TWEAK_SOMERSAULT_MOMENTUM, "somersault-momentum", "somersault keeps speed", "a somersault from a run keeps the speed it began with instead of dropping to 1.875; the game's own somersault friction then slows it") \
     X(SA2_TWEAK_SPIN_DASH_FAST, "spin-dash-fast", "spin dash charges in 10 frames", "the spin dash starts after 10 frames held instead of 24; a short press still somersaults") \
     X(SA2_TWEAK_STAGE_SELECT_ALL, "stage-select-all", "all stages in Stage Select", "every stage shows in Stage Select, without clearing it in story mode first") \
     X(SA2_TWEAK_START_ASSISTS, "start-assists", "start assists", "every level starts with a magnetic barrier, invincibility and the character's upgrades (the upgrades are not saved; what you collect or clear with them is)") \
