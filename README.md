@@ -18,13 +18,13 @@ This is an experimental prerelease with incomplete stage coverage. On Android, t
 
 ## Tweaks
 
-From v0.1.0-alpha.5, OpenSA2 has 63 optional tweaks: fixes, assists, and changes to how the game looks, sounds, and plays, many based on popular community mods and Mod Loader codes. Every tweak is off until you turn it on, and replays never use them. On Android, turn them on in the **Tweaks** card in **Game settings**. On Windows and Linux, list them in the release's `share/game.env`, for example `SA2_TWEAKS=skip-intro,no-loading-tips`.
+OpenSA2 has 64 optional tweaks: fixes, assists, and changes to how the game looks, sounds, and plays, many based on popular community mods and Mod Loader codes. Every tweak is off until you turn it on, and replays never use them. On Android, turn them on in the **Tweaks** card in **Game settings**. On Windows and Linux, list them in the release's `share/game.env`, for example `SA2_TWEAKS=skip-intro,no-loading-tips`.
 
 - **Gameplay and assists:** Infinite lives, Show all stages in Stage Select\*, All upgrades, Practice a stage, Faster spin dash\*, Metal Sonic physics, Livelier walkers, No Omochao hints, Start with assists, Never fall off rails, Forgiving restarts, Radar tracks all pieces, Lose at most 20 rings, Hard Mode layouts, Two-player stage layouts, Rank Mission 4 by time, Rival upgrades, Gold Beetles stay, Keep powerups on the victory screen\*, No extra life at 100 rings, No Restart or Exit question, Hide the emerald radar, No special attacks in 2P, Slow mode.
 - **Story and presentation:** Skip intro, Skip any cutscene, Remove cutscene black bars, Story recap before every stage, Faster stage loading, Faster loading, Skip loading tips, Wider field of view, Double draw distance, Sharper textures, Reduce camera shake, Hide the HUD, Frame-time overlay, Hide upgrade models, No White Jungle rain, Vsync, Black bars on every cutscene.
 - **Controls:** Analog stick fix, Light dash on Y and spin dash on X, Round stick deadzone, Invert camera, Tap to hold B.
 - **Audio:** Turn off music\*, Mute character voices\*, No power-up music, Mono audio, Swap left/right audio.
-- **Chao:** Chao stats x5, Chao Key always held, Rings over time in Chao World, Chaos Drives become animals.
+- **Chao:** Start in Chao World, Chao stats x5, Chao Key always held, Rings over time in Chao World, Chaos Drives become animals.
 - **Fixes:** Fix grey model tint, Shadow light dash trail, Fix Metal Sonic bounce crash, Fix the Chao Walker cannon crash, Mod Loader default fixes.
 - **Desktop and window:** Pause when unfocused, plus two for Windows and Linux only: a speedrun timer feed for LiveSplit and a vanilla profile that turns every other tweak off.
 
