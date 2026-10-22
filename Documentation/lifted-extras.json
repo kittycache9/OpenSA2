@@ -17,13 +17,28 @@
  ],
  "arms_tag": "next",
  "counts": {
-  "compiled": 5645,
-  "guest_bytes": 17543086,
-  "lifted": 5645,
-  "rows": 5645
+  "compiled": 5646,
+  "guest_bytes": 17543097,
+  "lifted": 5646,
+  "rows": 5646
  },
  "lift_tag": "next",
  "rows": [
+  {
+   "bytes": 11,
+   "compiled": true,
+   "declares_sub": [],
+   "end": "0x0040100b",
+   "folded": true,
+   "lifted": true,
+   "owner": {
+    "end": "0x0040100b",
+    "name": "(--end)",
+    "start": "0x00401000"
+   },
+   "va": "0x00401000",
+   "why": "reloc_address_taken in address_taken.txt: a base relocation names it, as a pointer stored at 0x00910f94; no relocation reads it as data; it follows a section start and decodes to a ret or jmp"
+  },
   {
    "bytes": 16,
    "compiled": true,
