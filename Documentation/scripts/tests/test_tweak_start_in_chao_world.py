@@ -153,6 +153,15 @@ def test_on_the_first_main_menu_after_the_save_goes_to_chao_world_once(exe):
                                  "of the main menu"]
 
 
+def test_a_main_menu_with_the_save_index_at_minus_two_waits_for_the_save(exe):
+    """File Select's entry and its failures, and the title's branch to the main menu without a save,
+    leave the index at -2: no save is loaded, so the wrap waits for a real slot and does not finish."""
+    out, err = run(exe, "1", "-2", SONIC, "1", "-2", SONIC, "1", "1", SONIC, SA2_TWEAKS=TWEAK)
+    assert out == [f"1 0 {UNTOUCHED}", f"2 0 {UNTOUCHED}", "3 1 90 13 0 4 0 0 0 0 0 0 0 1"]
+    assert err == [REPORT, SAY + "the save is loaded: going to Chao World as character 0 instead "
+                                 "of the main menu"]
+
+
 @pytest.mark.parametrize("unlock, character", [
     ("0000000001000000", 4),   # Knuckles
     ("0000000000000100", 2),   # Mech Tails, who walks as Tails
@@ -186,8 +195,8 @@ def test_ignored_in_a_replay(exe, replay):
 def test_a_save_index_that_does_not_read_leaves_the_menu_and_is_said_once(exe):
     out, err = run(exe, "1", "0", SONIC, "1", "0", SONIC, SA2_TWEAKS=TWEAK, CW_FAIL="peek")
     assert out == [f"{n} 0 {UNTOUCHED}" for n in (1, 2)]
-    assert err == [REPORT, SAY + "CurrentMenu, the save index or the Chao World bytes do not read, "
-                                 "so the main menu is shown"]
+    assert err == [REPORT, SAY + "CurrentMenu, the save index, the Chao World bytes or CurrentLevel do "
+                                 "not read, so the main menu is shown"]
 
 
 def test_a_store_that_fails_returns_the_menus_own_answer(exe):

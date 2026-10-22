@@ -10,10 +10,19 @@
  * CurrentMenu (int32 at 0x01D7BB10) names once a frame; menu 1 is the main menu, 0x00664EC0, which
  * takes no arguments and returns 0 to stay or 1 to leave the menus (0x00666299). On a 1, RunMenus
  * returns 1 (0x006663CC-0x00666405, raising the lives to 4 as for any start) and GameModeHandler's
- * case 14 copies NextGameMode (int32 at 0x0174B044) into GameMode (0x0043479A). The title opens
- * File Select while the save index ChaoSaveIndexThing (int32 at 0x0173D06C, -1 at boot) is -1
- * (0x00671C96) and the main menu once File Select has set it and loaded the save (0x006895A2,
- * then 0x00445100), so the main menu with that index not -1 comes after the save is loaded.
+ * case 14 copies NextGameMode (int32 at 0x0174B044) into GameMode (0x0043479A).
+ *
+ * When the save is loaded. The title opens File Select while the save index ChaoSaveIndexThing
+ * (int32 at 0x0173D06C, -1 at boot) is -1 (0x00671C96). File Select sets it to -2 on entry
+ * (0x00688D96) and when no file reads (0x00689D56), and on a confirmed file to the slot byte
+ * 0x01D1BE9A, then loads the save (0x006895A2, then 0x00445100). The image stores that byte only as
+ * 0 or 1 (0x00688D4E, 0x00688D60), so 0 and 1 are the real slots. The main menu can also open with
+ * the index at -2 and no save loaded: the title's branch at 0x00671E5B sets CurrentMenu 1 and the
+ * index -2, and the menus set -2 after a save fails (0x0066DCC6, 0x0066E981). The game's save
+ * writers (0x004436A0, 0x004448B0) take a negative index as no save. So a main menu with the index
+ * 0 or more comes after File Select loaded a save, and a negative one never does. With
+ * practice-stage on, the index is 0 with no File Select load: the Chao World bytes then read zero
+ * and the wrap refuses by name, which is harmless, as the main menu shows as usual.
  *
  * Stage Select's Chao World tile (row 22 of 0x00C75078, level 90) starts the level in the type 2
  * arm of 0x00678250 (0x0067829C-0x00678407), then Menu_StageSelect (0x00672AA3) and returns 1.
@@ -32,10 +41,11 @@
  * pending-character branch (0x00678307 and on, when 0x01748B94 was 1) cannot run: the arm has
  * cleared EAX by then.
  *
- * The wrap, on the first main-menu frame with the save index not -1: when no character's byte is
+ * The wrap, on the first main-menu frame with the save index 0 or more: when no character's byte is
  * set, it says so and the menu runs as usual; otherwise it calls __real_sub_664ec0, makes the
  * stores and returns EAX = 1. Either way the run is then DONE, and every later main-menu frame is
- * the lifted code alone. Chao World's exit (0x004343BE) then goes to the menus (GameMode 2), with
+ * the lifted code alone. A main-menu frame with a negative index is the lifted code alone and
+ * leaves the wrap waiting. Chao World's exit (0x004343BE) then goes to the menus (GameMode 2), with
  * no Chao Key, no two-player game and no story set; 0x01A559E8 is left as the title left it (0), so
  * the menus open at the title, and the title, the save index being set, at the main menu.
  *
@@ -51,9 +61,9 @@
  * The lines it prints, once a run, each prefixed "sa2 tweaks: start in Chao World: ": "the save is
  * loaded: going to Chao World as character 0 instead of the main menu", "the save has not opened
  * Chao World (no byte of 0x01DEF829..0x01DEF830 set for a Chao World character), so the main menu
- * is shown", "CurrentMenu, the save index or the Chao World bytes do not read, so the main menu is
- * shown", or "0x0174B044 does not write, so the main menu answers for itself" (the address that
- * failed).
+ * is shown", "CurrentMenu, the save index, the Chao World bytes or CurrentLevel do not read, so the
+ * main menu is shown", or "0x0174B044 does not write, so the main menu answers for itself" (the
+ * address that failed).
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -64,7 +74,7 @@
 #include "sa2_tweaks.h"
 
 #define CW_CURRENT_MENU    0x01D7BB10u  /* int32 */
-#define CW_SAVE_INDEX      0x0173D06Cu  /* int32, -1 until File Select loads a save */
+#define CW_SAVE_INDEX      0x0173D06Cu  /* int32, the slot (0 or 1) once a save loads */
 #define CW_UNLOCK          0x01DEF829u  /* 8 bytes, one per character id */
 #define CW_CURRENT_LEVEL   0x01934B70u  /* int16 */
 #define CW_PREVIOUS_LEVEL  0x01934B84u  /* int16 */
@@ -115,11 +125,11 @@ void *__wrap_sub_664ec0(void *state, uint32_t pc, void *memory) {
         sa2_peek(CW_UNLOCK, sizeof unlock, unlock) != SA2_OK ||
         sa2_peek(CW_CURRENT_LEVEL, 2, &level) != SA2_OK) {
         g_cw_phase = CW_DONE;
-        CW_SAY("CurrentMenu, the save index or the Chao World bytes do not read, so the main menu "
-               "is shown\n");
+        CW_SAY("CurrentMenu, the save index, the Chao World bytes or CurrentLevel do not read, so the "
+               "main menu is shown\n");
         return __real_sub_664ec0(state, pc, memory);
     }
-    if (menu != CW_MAIN_MENU || index == -1) return __real_sub_664ec0(state, pc, memory);
+    if (menu != CW_MAIN_MENU || index < 0) return __real_sub_664ec0(state, pc, memory);
     g_cw_phase = CW_DONE;
     int chosen = -1;
     for (unsigned i = 0; i < sizeof CW_CHARACTERS && chosen < 0; i++)
