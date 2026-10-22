@@ -350,19 +350,9 @@ def test_the_game_starts_by_itself_only_when_the_player_turned_that_on():
     assert "Start the game when the app opens" in (app / "Sa2SettingsActivity.java").read_text()
 
 
-def test_the_play_shortcut_goes_through_the_check_and_the_chao_boosts_are_tweaks():
-    """The home-screen Play shortcut is a static shortcut to the setup screen with sa2.play, which
-    runs the installation check before the game; the Chao boosts button names two real tweaks."""
-    manifest = (ROOT / "host/android/AndroidManifest.xml").read_text()
-    shortcuts = (ROOT / "host/android/res/xml/shortcuts.xml").read_text()
-    app = ROOT / "host/android/java/com/sa2recomp/app"
-    assert 'android:name="android.app.shortcuts" android:resource="@xml/shortcuts"' in manifest
-    assert 'android:targetClass="com.sa2recomp.app.Sa2SetupActivity"' in shortcuts
-    assert '<extra android:name="sa2.play" android:value="true" />' in shortcuts
-    setup = (app / "Sa2SetupActivity.java").read_text()
-    assert 'EXTRA_PLAY = "sa2.play"' in setup
-    assert "if (it.getBooleanExtra(EXTRA_PLAY, false) && configFile().isFile() && !mBusy) {" in setup
-    settings = (app / "GameSettings.java").read_text()
+def test_the_chao_boosts_are_two_real_tweaks():
+    """The Chao boosts button names two real tweaks, both of which write to the save."""
+    settings = (ROOT / "host/android/java/com/sa2recomp/app/GameSettings.java").read_text()
     boosts = re.search(r"CHAO_BOOSTS = \{(.*?)\};", settings).group(1)
     names = set(re.findall(r'"([^"]+)"', boosts))
     assert names == {"chao-stat-x5", "garden-ring-trickle"}

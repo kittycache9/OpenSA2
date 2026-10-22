@@ -32,7 +32,7 @@ The app copies the ZIP, then shows "Checking the game ZIP" while it verifies and
 
 The app supports touch controls and external controllers. The touch controls appear when you touch the screen.
 
-The app no longer starts the game by itself. It opens to its own screen, and you tap **Play**. To start faster, press and hold the app icon on your home screen and tap **Play**, or turn on **Start the game when the app opens** in **Game settings**, which also starts the game when an install finishes.
+The app no longer starts the game by itself. It opens to its own screen, and you tap **Play**. To start the game at once instead, turn on **Start the game when the app opens** in **Game settings**. It also starts the game when an install finishes.
 
 ### Game settings on Android
 

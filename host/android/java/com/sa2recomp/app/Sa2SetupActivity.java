@@ -79,7 +79,7 @@ import java.util.Map;
  * Intent extras: sa2.stream (and Sa2Activity's other extras) start the play screen's stream mode
  * at once, the renderer's check with no game; sa2.no_autoplay keeps this screen up. The game starts
  * by itself when the app opens, or when an install finishes, only with Game settings > "Start the game
- * when the app opens" on (off by default); sa2.play, from the Play shortcut, starts it at once.
+ * when the app opens" on (off by default).
  *
  * The app's files folder is private on a release build, so this screen copies each kept
  * session's logs and records, and last-session.txt, into the external files folder's sessions/
@@ -88,7 +88,6 @@ import java.util.Map;
 public class Sa2SetupActivity extends Activity {
     private static final String TAG = "sa2recomp";
     public static final String EXTRA_NO_AUTOPLAY = "sa2.no_autoplay";
-    public static final String EXTRA_PLAY = "sa2.play";
     private static final String GAME_EXE = "sonic2app.exe";
     private static final int PICK_ZIP = 1;
     private static final String PROJECT = "https://github.com/kittycache9/OpenSA2";
@@ -135,10 +134,6 @@ public class Sa2SetupActivity extends Activity {
     private void takeIntent(Intent it) {
         if (it == null) return;
         if (it.getBooleanExtra(EXTRA_NO_AUTOPLAY, false)) mAutoPlayDone = true;
-        if (it.getBooleanExtra(EXTRA_PLAY, false) && configFile().isFile() && !mBusy) {
-            mAutoPlayDone = true;
-            verifyThenPlay();
-        }
         if (it.getStringExtra(Sa2Activity.EXTRA_STREAM) != null) {
             mAutoPlayDone = true;
             Intent play = new Intent(this, Sa2Activity.class);

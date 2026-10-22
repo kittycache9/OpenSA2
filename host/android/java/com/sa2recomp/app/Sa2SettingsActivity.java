@@ -232,9 +232,8 @@ public class Sa2SettingsActivity extends Activity {
             mS.autoPlay = on;
             save();
         });
-        note(st, "Off: the app opens to its own screen and you tap Play (or use the Play shortcut on the home "
-                + "screen: press and hold the app icon). On: the game starts at once when the app opens, "
-                + "and when an install finishes.");
+        note(st, "Off: the app opens to its own screen and you tap Play. On: the game starts at once when the "
+                + "app opens, and when an install finishes.");
 
         // Display
         LinearLayout d = card(col, "Display");
