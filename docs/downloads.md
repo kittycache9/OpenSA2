@@ -34,6 +34,8 @@ The app supports touch controls and external controllers. The touch controls app
 
 The app no longer starts the game by itself. It opens to its own screen, and you tap **Play**. To start the game at once instead, turn on **Start the game when the app opens** in **Game settings**. It also starts the game when an install finishes.
 
+**Chao World**, under **Play**, starts the game the same way but turns on two tweaks for that one launch: **Skip intro** (`skip-intro`) and **Start in Chao World** (`start-in-chao-world`). Your settings do not change, so the next **Play** starts as usual. The game skips the logos and opens at the title screen. Tap Start and pick your file in File Select, and the game goes to the Chao World lobby. If that save has not opened Chao World yet, you get the main menu instead.
+
 ### Game settings on Android
 
 Tap **Game settings** on the setup screen. Changes apply the next time the game starts. App updates keep your settings.

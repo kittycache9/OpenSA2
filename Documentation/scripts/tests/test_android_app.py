@@ -357,3 +357,42 @@ def test_the_chao_boosts_are_two_real_tweaks():
     names = set(re.findall(r'"([^"]+)"', boosts))
     assert names == {"chao-stat-x5", "garden-ring-trickle"}
     assert all(f'new Tweak("{n}"' in settings for n in names)
+
+
+def test_the_chao_world_button_hands_one_launch_the_chao_tweaks():
+    """Chao World runs Play's check, then starts the play screen with GameSettings.CHAO_LAUNCH as
+    Sa2Activity.EXTRA_TWEAKS, which the play screen hands to sessionSettings. The setup screen keeps
+    the names in one field, set by the button and cleared at every end of its check, so a later Play
+    or autoplay never carries them; nothing stores them. Sa2SetupActivity is not compiled by any
+    test (it needs SDL's Java through Sa2Activity), so these pins are what holds the wiring."""
+    app = ROOT / "host/android/java/com/sa2recomp/app"
+    setup = (app / "Sa2SetupActivity.java").read_text()
+    activity = (app / "Sa2Activity.java").read_text()
+    settings = (app / "GameSettings.java").read_text()
+    names = re.findall(r'"([^"]+)"', re.search(r"CHAO_LAUNCH = \{(.*?)\};", settings).group(1))
+    assert names == ["skip-intro", "start-in-chao-world"]
+    assert all(f'new Tweak("{n}"' in settings for n in names)
+    assert settings.count("CHAO_LAUNCH") == 1 and "CHAO_LAUNCH" not in (app / "Sa2SettingsActivity.java").read_text()
+
+    chao = re.search(r'mChao = Ui\.button\(this, "Chao World", v -> \{(.*?)\n        \}\);', setup, re.S).group(1)
+    assert [line.strip() for line in chao.strip().splitlines()] == [
+        "mAutoPlayDone = true;", "mHoldPlay = false;", "mLaunchTweaks = GameSettings.CHAO_LAUNCH;", "verifyThenPlay();"]
+    play_button = re.search(r'mPlay = Ui\.button\(this, "Play", v -> \{(.*?)\n        \}\);', setup, re.S).group(1)
+    assert "mLaunchTweaks" not in play_button
+    play = re.search(r"private void play\(\) \{(.*?)\n    \}", setup, re.S).group(1)
+    assert ("if (mLaunchTweaks != null) play.putExtra(Sa2Activity.EXTRA_TWEAKS, mLaunchTweaks);\n"
+            "        mLaunchTweaks = null;\n        launchPlay(play);") in play
+    held = re.search(r"private void playUnlessHeld\(\) \{(.*?)\n    \}", setup, re.S).group(1)
+    verify = re.search(r"private void verifyThenPlay\(\) \{(.*?)\n    \}", setup, re.S).group(1)
+    assert "mLaunchTweaks = null;" in held and "mLaunchTweaks = null;" in verify
+    assert setup.count("mLaunchTweaks = null;") == 3
+    installed = re.search(r"if \(installed\) \{(.*?)\} else \{", setup, re.S).group(1)
+    assert ("mActions.addView(mPlay, Ui.full(0));\n            mActions.addView(mChao, Ui.full(dp(8)));\n"
+            "            mActions.addView(mChaoNote, Ui.full(dp(4)));") in installed
+    assert "mChao.setEnabled(!busy);" in setup and "mChao.setEnabled(!mBusy);" in setup
+    assert ('"Chao World skips the logos and goes to Chao World after you choose your save, which "\n'
+            '                          + "must have opened Chao World before."') in setup
+
+    assert 'EXTRA_TWEAKS = "sa2.tweaks";' in activity
+    assert "String[] launchTweaks = it == null ? null : it.getStringArrayExtra(EXTRA_TWEAKS);" in activity
+    assert "s.sessionSettings(screen[0], screen[1], launchTweaks == null ? new String[0] : launchTweaks)" in activity

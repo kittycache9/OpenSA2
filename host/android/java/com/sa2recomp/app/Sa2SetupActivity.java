@@ -65,6 +65,10 @@ import java.util.Map;
  * does not start the game by itself the next time it opens, so a new session does not replace the
  * crashed one's records before the player has copied them; Play or a copy marks the crash seen.
  *
+ * Chao World starts the game as Play does, with GameSettings.CHAO_LAUNCH's tweaks on for that launch
+ * alone (Sa2Activity.EXTRA_TWEAKS): no logos, and the Chao World lobby once File Select has loaded a
+ * save that has opened Chao World. The stored settings stay as they are.
+ *
  * Game settings opens the settings screen (Sa2SettingsActivity). Opened while a check runs, it keeps
  * that check from starting the game: the player comes back here and taps Play.
  *
@@ -99,7 +103,8 @@ public class Sa2SetupActivity extends Activity {
 
     private TextView mStatus, mBanner, mProgress, mLog;
     private LinearLayout mActions;       // Play and the install buttons, arranged by layoutActions
-    private Button mZip, mCheck, mPlay, mSettings, mGithub, mCopy, mSummary, mShare;
+    private Button mZip, mCheck, mPlay, mChao, mSettings, mGithub, mCopy, mSummary, mShare;
+    private TextView mChaoNote;
     private final List<String> mInstallOut = new ArrayList<>();      // the last installer run's lines
     private String mInstallVerdict;      // InstallVerdict's account of the last refused run; null otherwise
     private int mWaitedForPlay;          // 2 s checks spent waiting for a closing play process
@@ -107,6 +112,7 @@ public class Sa2SetupActivity extends Activity {
     private final Handler mTicker = new Handler(Looper.getMainLooper());
     private boolean mBusy, mAutoPlayDone, mInstallTried, mPlayLaunched, mShowingLast;
     private boolean mHoldPlay;           // the settings were opened during a check: if it passes, it does not start the game
+    private String[] mLaunchTweaks;      // the Chao World button's, for the launch its check starts; null after it
     private final ArrayDeque<String> mLines = new ArrayDeque<>();
 
     @Override
@@ -416,6 +422,7 @@ public class Sa2SetupActivity extends Activity {
         mZip.setEnabled(!busy);
         mCheck.setEnabled(!busy);
         mPlay.setEnabled(!busy);
+        mChao.setEnabled(!busy);
     }
 
     // ------------------------------------------------------------ the installer
@@ -634,6 +641,7 @@ public class Sa2SetupActivity extends Activity {
                 playUnlessHeld();
             } else {
                 mHoldPlay = false;
+                mLaunchTweaks = null;
                 banner("The installation no longer verifies (exit " + code + "). Reinstall it from a ZIP, or "
                        + "copy the game folder again and tap Reinstall from folder.");
             }
@@ -645,6 +653,7 @@ public class Sa2SetupActivity extends Activity {
     private void playUnlessHeld() {
         if (mHoldPlay) {
             mHoldPlay = false;
+            mLaunchTweaks = null;
             addLine("The game did not start because the settings were opened. Tap Play.");
             return;
         }
@@ -661,7 +670,10 @@ public class Sa2SetupActivity extends Activity {
         markCrashSeen();
         mShowingLast = false;
         mInstallVerdict = null;
-        launchPlay(new Intent(this, Sa2Activity.class));
+        Intent play = new Intent(this, Sa2Activity.class);
+        if (mLaunchTweaks != null) play.putExtra(Sa2Activity.EXTRA_TWEAKS, mLaunchTweaks);
+        mLaunchTweaks = null;
+        launchPlay(play);
     }
 
     // ------------------------------------------------------------ the crash report
@@ -791,20 +803,25 @@ public class Sa2SetupActivity extends Activity {
         return Ui.dp(this, v);
     }
 
-    /** Installed: Play on its own, the settings, then the two ways to install again. Not installed:
-     * Choose game ZIP on its own, then the folder check and the settings. */
+    /** Installed: Play on its own, Chao World and its note, the settings, then the two ways to install
+     * again. Not installed: Choose game ZIP on its own, then the folder check and the settings. */
     private void layoutActions(boolean installed) {
         mActions.removeAllViews();
         if (installed) {
             mZip.setText("Reinstall from ZIP");
             mCheck.setText("Reinstall from folder");
             Ui.style(mPlay, Ui.PRIMARY);
+            Ui.style(mChao, Ui.SECONDARY);
             Ui.style(mZip, Ui.SECONDARY);
             Ui.style(mCheck, Ui.SECONDARY);
             Ui.style(mSettings, Ui.SECONDARY);
             Ui.detach(mPlay);
+            Ui.detach(mChao);
+            Ui.detach(mChaoNote);
             Ui.detach(mSettings);
             mActions.addView(mPlay, Ui.full(0));
+            mActions.addView(mChao, Ui.full(dp(8)));
+            mActions.addView(mChaoNote, Ui.full(dp(4)));
             mActions.addView(mSettings, Ui.full(dp(8)));
             mActions.addView(Ui.row(this, mZip, mCheck), Ui.full(dp(8)));
         } else {
@@ -823,6 +840,7 @@ public class Sa2SetupActivity extends Activity {
         mZip.setEnabled(!mBusy);
         mCheck.setEnabled(!mBusy);
         mPlay.setEnabled(!mBusy);
+        mChao.setEnabled(!mBusy);
     }
 
     /** The card above the buttons for something the player must act on (a crash, a refused install),
@@ -1025,6 +1043,17 @@ public class Sa2SetupActivity extends Activity {
             mHoldPlay = false;
             verifyThenPlay();
         });
+        mChao = Ui.button(this, "Chao World", v -> {
+            mAutoPlayDone = true;
+            mHoldPlay = false;
+            mLaunchTweaks = GameSettings.CHAO_LAUNCH;
+            verifyThenPlay();
+        });
+        mChaoNote = new TextView(this);
+        mChaoNote.setText("Chao World skips the logos and goes to Chao World after you choose your save, which "
+                          + "must have opened Chao World before.");
+        mChaoNote.setTextColor(Color.rgb(0x8A, 0x97, 0xB2));
+        mChaoNote.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         mSettings = Ui.button(this, "Game settings", v -> openSettings());
         mZip = Ui.button(this, "Choose game ZIP", v -> pickZip());
         mCheck = Ui.button(this, "Check game folder", v -> {

@@ -24,7 +24,9 @@ import org.libsdl.app.SDLActivity;
  * second session starts with fresh native state.
  *
  * Intent extras (from Sa2SetupActivity): sa2.stream (a recorded stream file to play with no
- * game: the renderer's check), sa2.max_frames, sa2.no_audio, sa2.no_pace.
+ * game: the renderer's check), sa2.max_frames, sa2.no_audio, sa2.no_pace, and sa2.tweaks (tweak
+ * names this session turns on beside the stored ones: GameSettings.CHAO_LAUNCH from the Chao World
+ * button).
  *
  * The session is also given the screen's size in pixels in its orientation (--screen WxH), from
  * which it sizes the game's back buffer (SA2_PLAY_RES, runtime/sa2_widescreen.c), so the picture
@@ -37,6 +39,7 @@ public class Sa2Activity extends SDLActivity {
     public static final String EXTRA_MAX_FRAMES = "sa2.max_frames";
     public static final String EXTRA_NO_AUDIO = "sa2.no_audio";
     public static final String EXTRA_NO_PACE = "sa2.no_pace";
+    public static final String EXTRA_TWEAKS = "sa2.tweaks";
 
     private static final long BACK_AGAIN_MS = 2500;
     private boolean mQuitSent;
@@ -63,6 +66,8 @@ public class Sa2Activity extends SDLActivity {
         a.add("--libdir");
         a.add(getApplicationInfo().nativeLibraryDir);
         GameSettings s = settings();
+        Intent it = getIntent();
+        String[] launchTweaks = it == null ? null : it.getStringArrayExtra(EXTRA_TWEAKS);
         int[] screen = GameSettings.screen(this);
         if (screen != null) {
             a.add("--screen");
@@ -73,7 +78,7 @@ public class Sa2Activity extends SDLActivity {
             a.add(s.orientation);
         }
         if (screen != null) {
-            for (String kv : s.sessionSettings(screen[0], screen[1])) {
+            for (String kv : s.sessionSettings(screen[0], screen[1], launchTweaks == null ? new String[0] : launchTweaks)) {
                 a.add("--setting");
                 a.add(kv);
             }
@@ -83,7 +88,6 @@ public class Sa2Activity extends SDLActivity {
             a.add("--external");
             a.add(ext.getAbsolutePath());
         }
-        Intent it = getIntent();
         if (it != null) {
             String stream = it.getStringExtra(EXTRA_STREAM);
             if (stream != null && !stream.isEmpty()) {
