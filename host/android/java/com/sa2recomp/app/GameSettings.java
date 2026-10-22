@@ -287,6 +287,10 @@ final class GameSettings {
     /** What the Chao boosts button turns on (Sa2SettingsActivity.chaoBoosts); both write to the save. */
     static final String[] CHAO_BOOSTS = {"chao-stat-x5", "garden-ring-trickle"};
 
+    /** What the setup screen's Chao World button turns on for its one launch (Sa2Activity.EXTRA_TWEAKS),
+     * beside the stored tweaksOn, which it leaves as they are. */
+    static final String[] CHAO_LAUNCH = {"skip-intro", "start-in-chao-world"};
+
     String orientation = LANDSCAPE;
     boolean widescreen = true, hud43 = true;
     boolean autoPlay = false;         // start the game when the app opens or an install finishes: off, the screen stays up
@@ -464,8 +468,9 @@ final class GameSettings {
 
     // ------------------------------------------------------------ the session's settings
 
-    /** The --setting values for these settings on a lng x shrt screen: none at the defaults. */
-    List<String> sessionSettings(int lng, int shrt) {
+    /** The --setting values for these settings on a lng x shrt screen, with `launchTweaks` (TWEAKS
+     * names) on for this session alone: none at the defaults. */
+    List<String> sessionSettings(int lng, int shrt, String... launchTweaks) {
         List<String> e = new ArrayList<>();
         if (!displayDefault()) {
             int[] p = picture(lng, shrt);
@@ -485,17 +490,18 @@ final class GameSettings {
         if (!layoutPortrait.isEmpty()) e.add("SA2_TOUCH_LAYOUT_PORTRAIT=" + layoutPortrait);
         if (!touchMap.isEmpty()) e.add("SA2_TOUCH_MAP=" + touchMap);
         if (!padMap.isEmpty()) e.add("SA2_PAD_MAP=" + padMap);
-        String tweaks = tweaks();
+        String tweaks = tweaks(launchTweaks);
         if (!tweaks.isEmpty()) e.add("SA2_TWEAKS=" + tweaks);
         if (recordSessions) e.add("SA2_RECORD_SESSION=1");   // the native session's, not the game's
         return e;
     }
 
-    /** SA2_TWEAKS's value: the names of the tweaks turned on, comma-separated in TWEAKS's order;
-     * "" for none. */
-    String tweaks() {
+    /** SA2_TWEAKS's value: the names of the tweaks turned on, and of `also`, comma-separated in TWEAKS's
+     * order, each once; "" for none. */
+    String tweaks(String... also) {
+        List<String> extra = Arrays.asList(also);
         List<String> on = new ArrayList<>();
-        for (Tweak t : TWEAKS) if (tweaksOn.contains(t.name)) on.add(t.name);
+        for (Tweak t : TWEAKS) if (tweaksOn.contains(t.name) || extra.contains(t.name)) on.add(t.name);
         return String.join(",", on);
     }
 

@@ -31,7 +31,8 @@ JDK = ROOT / json.loads((ROOT / "tools/pins.json").read_text())["tools"]["java"]
 ANDROID_JAR = ROOT / "private/android-sdk/platforms/android-36/android.jar"
 APP = ROOT / "host/android/java/com/sa2recomp/app"
 
-# argv: lng shrt [tweak names to turn on...] -> each --setting on a line, then the SA2_TWEAKS value
+# argv: lng shrt [tweak names to turn on, or +name for one launch alone, or a last +chao for
+# GameSettings.CHAO_LAUNCH...] -> each --setting on a line, then the stored tweaks' SA2_TWEAKS value
 # in brackets; argv "list" -> each TWEAKS line as name|label|description; argv "groups" [heading=name,
 # name...]... -> the Tweaks card's order for TWEAK_GROUPS (or for the groups given), "# heading" and
 # then "name|label" for each tweak, and "! problem" for each problem tweakGroups found.
@@ -64,8 +65,14 @@ public class SettingsDriver {
             return;
         }
         GameSettings s = new GameSettings();
-        for (int i = 2; i < a.length; i++) s.tweaksOn.add(a[i]);
-        for (String e : s.sessionSettings(Integer.parseInt(a[0]), Integer.parseInt(a[1]))) System.out.println(e);
+        java.util.List<String> launch = new java.util.ArrayList<>();
+        for (int i = 2; i < a.length; i++) {
+            if (a[i].startsWith("+")) launch.add(a[i].substring(1));
+            else s.tweaksOn.add(a[i]);
+        }
+        String[] once = launch.toArray(new String[0]);
+        if (a[a.length - 1].equals("+chao")) once = GameSettings.CHAO_LAUNCH;
+        for (String e : s.sessionSettings(Integer.parseInt(a[0]), Integer.parseInt(a[1]), once)) System.out.println(e);
         System.out.println("[" + s.tweaks() + "]");
     }
 }
@@ -138,6 +145,19 @@ def test_the_tweaks_turned_on_go_in_the_lists_order(java):
     names = [line.split("|")[0] for line in java("list")]
     assert java(2340, 1080, *reversed(names), "not-a-tweak") == [
         "SA2_TWEAKS=" + ",".join(names), "[" + ",".join(names) + "]"]
+
+
+def test_the_chao_world_launch_adds_its_two_tweaks_for_that_session_alone(java):
+    """The setup screen's Chao World button: skip-intro and start-in-chao-world join the stored
+    tweaks in SA2_TWEAKS, in TWEAKS's order and each once, while the stored tweaks (the bracketed
+    value) stay as they were."""
+    assert java(2340, 1080, "+chao") == ["SA2_TWEAKS=skip-intro,start-in-chao-world", "[]"]
+    assert java(2340, 1080, "vsync", "analog-fix", "+chao") == [
+        "SA2_TWEAKS=analog-fix,skip-intro,start-in-chao-world,vsync", "[analog-fix,vsync]"]
+    assert java(2340, 1080, "skip-intro", "no-music", "+chao") == [
+        "SA2_TWEAKS=no-music,skip-intro,start-in-chao-world", "[no-music,skip-intro]"]
+    assert java(2340, 1080, "+start-in-chao-world", "+skip-intro", "+start-in-chao-world") == [
+        "SA2_TWEAKS=skip-intro,start-in-chao-world", "[]"]
 
 
 def test_each_tweak_line_has_a_label_and_a_note(java):
