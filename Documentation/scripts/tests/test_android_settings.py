@@ -11,7 +11,8 @@ runtime/sa2_tweaks.h's list), shown under GameSettings.TWEAK_GROUPS's headings w
 in the table's own order (GameSettings.tweakGroups), while SA2_TWEAKS and the preferences keep the names. A small Java driver runs GameSettings here against android.jar; the
 settings screen (Sa2SettingsActivity, with Ui, the layout editor it opens, SaveTools and the Debug card's
 DebugExport with what it reads) is compiled beside
-it, so a card that no longer builds fails here, not in the APK's build.
+it, so a card that no longer builds fails here, not in the APK's build. A second driver runs
+SaveTools.backupNow on folders made here.
 
 Needs the pinned JDK (tools/pins.json java) and the Android SDK's android.jar; it is skipped
 without them.
@@ -70,6 +71,16 @@ public class SettingsDriver {
 }
 """
 
+# argv: overlay-saves-folder backup-root -> SaveTools.backupNow's message, as one tap of "Back up saves now".
+BACKUP_DRIVER = r"""
+package com.sa2recomp.app;
+public class BackupDriver {
+    public static void main(String[] a) throws Exception {
+        System.out.println(SaveTools.backupNow(new java.io.File(a[0]), new java.io.File(a[1])));
+    }
+}
+"""
+
 
 # Sa2SetupActivity.readText alone (the real class extends SDL's activity, which the tree does not hold).
 SETUP_STANDIN = """package com.sa2recomp.app;
@@ -94,6 +105,7 @@ def java(tmp_path_factory):
     src = d / "java/com/sa2recomp/app"
     src.mkdir(parents=True)
     (src / "SettingsDriver.java").write_text(DRIVER)
+    (src / "BackupDriver.java").write_text(BACKUP_DRIVER)
     for name in ("GameSettings", "Sa2SettingsActivity", "Ui", "Sa2LayoutActivity", "SaveTools", "DebugExport",
                  "CrashReport", "Tombstone", "ExportProvider", "VulkanSupport"):
         shutil.copy(APP / f"{name}.java", src)
@@ -105,9 +117,9 @@ def java(tmp_path_factory):
                            "-d", str(d / "classes"), *map(str, src.glob("*.java"))], capture_output=True, text=True)
     assert done.returncode == 0, done.stdout + done.stderr
 
-    def run(*args) -> list[str]:
+    def run(*args, driver="SettingsDriver") -> list[str]:
         return subprocess.run([str(JDK / "bin/java"), "-cp", f"{d / 'classes'}:{ANDROID_JAR}",
-                               "com.sa2recomp.app.SettingsDriver", *map(str, args)], capture_output=True,
+                               f"com.sa2recomp.app.{driver}", *map(str, args)], capture_output=True,
                               text=True, check=True).stdout.splitlines()
     return run
 
@@ -228,3 +240,64 @@ def test_the_tweaks_card_is_made_from_the_list():
     assert "no-event-bars" not in screen and "eventBars" not in screen + settings
     assert 'p.getBoolean("tweak_" + t.name, false)' in settings
     assert 'e.putBoolean("tweak_" + t.name, tweaksOn.contains(t.name));' in settings
+
+
+def backups(root: Path) -> list[tuple[str, dict[str, bytes]]]:
+    """Each backup folder in `root`, newest first, with the files it holds."""
+    return [(b.name, {f.name: f.read_bytes() for f in b.iterdir()}) for b in sorted(root.iterdir(), reverse=True)]
+
+
+def test_back_up_now_copies_the_saves_once_and_again_after_a_change(java, tmp_path):
+    overlay, root = tmp_path / "SAVEDATA", tmp_path / "save-backups"
+    overlay.mkdir()
+    story, chao = bytes(24576), bytes([7]) * 65536
+    (overlay / "SONIC2B__S01").write_bytes(story)
+    (overlay / "SONIC2B__ALF").write_bytes(chao)
+    (overlay / "notes.txt").write_text("not a save")
+
+    def tap():
+        return java(overlay, root, driver="BackupDriver")
+
+    first = tap()
+    [(name, files)] = backups(root)
+    assert files == {"SONIC2B__S01": story, "SONIC2B__ALF": chao}
+    assert first == [f"Backed up 2 saves in backup {name}."]
+
+    (overlay / "notes.txt").write_text("changed, still not a save")
+    assert tap() == [f"These saves are already in backup {name}."]
+    assert [n for n, _ in backups(root)] == [name]
+
+    changed = story[:100] + b"\x01" + story[101:]
+    (overlay / "SONIC2B__S01").write_bytes(changed)
+    third = tap()
+    [(newest, files), (older, _)] = backups(root)
+    assert older == name
+    assert files == {"SONIC2B__S01": changed, "SONIC2B__ALF": chao}
+    assert third == [f"Backed up 2 saves in backup {newest}."]
+
+
+def test_back_up_now_with_no_saves_in_the_overlay_makes_one_empty_backup(java, tmp_path):
+    """The game folder is never written, so with none of the overlay's own saves an empty backup is
+    the undo point: restoring it takes the game back to the game folder's saves."""
+    overlay, root = tmp_path / "SAVEDATA", tmp_path / "save-backups"
+    overlay.mkdir()
+    (overlay / "notes.txt").write_text("not a save")
+    first = java(overlay, root, driver="BackupDriver")
+    [(name, files)] = backups(root)
+    assert files == {}
+    assert first == [f"The game's saves are all in the game folder, which the app never changes, so backup {name} "
+                     "is empty. Restoring it returns to those saves."]
+    assert java(overlay, root, driver="BackupDriver") == [
+        f"The game's saves are all in the game folder, which the app never changes, so backup {name} was already "
+        "empty. Restoring it returns to those saves."]
+    assert [n for n, _ in backups(root)] == [name]
+
+
+def test_back_up_now_keeps_the_last_ten_backups(java, tmp_path):
+    overlay, root = tmp_path / "SAVEDATA", tmp_path / "save-backups"
+    overlay.mkdir()
+    for n in range(1, 13):
+        (overlay / "SONIC2B__S01").write_bytes(bytes([n]) * 24576)
+        java(overlay, root, driver="BackupDriver")
+    kept = backups(root)
+    assert [files["SONIC2B__S01"][0] for _, files in kept] == [12, 11, 10, 9, 8, 7, 6, 5, 4, 3]

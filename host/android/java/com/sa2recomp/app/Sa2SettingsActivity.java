@@ -57,6 +57,7 @@ public class Sa2SettingsActivity extends Activity {
     private Switch mWidescreen, mHud, mRecord, mAutoPlay;
     private final Map<String, Switch> mTweaks = new HashMap<>();   // each GameSettings.TWEAKS name's switch
     private Button mTweaksOff;                 // every tweak off at once (GameSettings.tweaksOff)
+    private Button mChaoBoosts, mBackupNow;
     private Button mResolution, mLayoutLandscape, mLayoutPortrait;
     private TextView mOrientationNote, mPictureNote, mSizeLabel, mOpacityLabel, mPlaceLabel, mPlaceNote;
     private SeekBar mSize, mOpacity, mPlace;
@@ -341,7 +342,7 @@ public class Sa2SettingsActivity extends Activity {
                 mTweaks.put(tweak.name, w);
                 note(tw, tweak.description);
             }
-            if ("Chao".equals(group.heading)) action(tw, "Turn on the Chao boosts", v -> chaoBoosts());
+            if ("Chao".equals(group.heading)) mChaoBoosts = action(tw, "Turn on the Chao boosts", v -> chaoBoosts());
         }
         // Vanilla: every tweak off at once (the desktop's is vanilla-profile, runtime/sa2_tweaks.h).
         mTweaksOff = action(tw, "Turn every tweak off", v -> new AlertDialog.Builder(this)
@@ -357,7 +358,7 @@ public class Sa2SettingsActivity extends Activity {
         LinearLayout sv = card(col, "Saves");
         action(sv, "Import saves", v -> pickSaves());
         action(sv, "Export saves", v -> pickExport());
-        action(sv, "Back up saves now", v -> backupNow());
+        mBackupNow = action(sv, "Back up saves now", v -> backupNow());
         action(sv, "Restore a backup", v -> pickBackup());
         note(sv, "Import takes save files (SONIC2B__S01 and the like for the story, SONIC2B__ALF for Chao World) "
                 + "or a ZIP of them, or a Debug Export's saves. It replaces only the saves it brings, and backs up the current ones first (the "
@@ -455,6 +456,7 @@ public class Sa2SettingsActivity extends Activity {
         if (mRecord != null) mRecord.setChecked(mS.recordSessions);
         for (Map.Entry<String, Switch> e : mTweaks.entrySet()) e.getValue().setChecked(mS.tweaksOn.contains(e.getKey()));
         mTweaksOff.setEnabled(!mS.tweaksOn.isEmpty());
+        if (mChaoBoosts != null) mChaoBoosts.setEnabled(!mS.tweaksOn.containsAll(Arrays.asList(GameSettings.CHAO_BOOSTS)));
         int[] pic = mS.picture(mLong, mShort);
         mPictureNote.setText(pic == null
                 ? "The game keeps its own size (" + GameSettings.CONFIG_W + "x" + GameSettings.CONFIG_H + ")."
@@ -639,6 +641,7 @@ public class Sa2SettingsActivity extends Activity {
     }
 
     private void backupNow() {
+        mBackupNow.setEnabled(false);
         new Thread(() -> {
             String msg;
             try {
@@ -647,7 +650,10 @@ public class Sa2SettingsActivity extends Activity {
                 msg = "Backup failed: " + e.getMessage();
             }
             final String m = msg;
-            runOnUiThread(() -> Toast.makeText(this, m, Toast.LENGTH_LONG).show());
+            runOnUiThread(() -> {
+                mBackupNow.setEnabled(true);
+                Toast.makeText(this, m, Toast.LENGTH_LONG).show();
+            });
         }, "save-backup").start();
     }
 
@@ -660,15 +666,19 @@ public class Sa2SettingsActivity extends Activity {
                         + "off. You can back up your saves first, then restore that backup to undo it.")
                 .setPositiveButton("Back up, then turn on", (dlg, w) -> new Thread(() -> {
                     String msg;
+                    boolean backedUp;
                     try {
                         msg = SaveTools.backupNow(this);
+                        backedUp = true;
                     } catch (Exception e) {
-                        msg = "No backup was made (" + e.getMessage() + ")";
+                        msg = "No backup was made (" + e.getMessage() + "), so the Chao boosts stay off.";
+                        backedUp = false;
                     }
                     final String m = msg;
+                    final boolean on = backedUp;
                     runOnUiThread(() -> {
                         Toast.makeText(this, m, Toast.LENGTH_LONG).show();
-                        applyChaoBoosts();
+                        if (on) applyChaoBoosts();
                     });
                 }, "save-backup").start())
                 .setNeutralButton("Turn on", (dlg, w) -> applyChaoBoosts())
@@ -708,7 +718,7 @@ public class Sa2SettingsActivity extends Activity {
     }
 
     private void pickBackup() {
-        List<File> all = SaveTools.backups(this);
+        List<File> all = SaveTools.backups(SaveTools.backupRoot(this));
         if (all.isEmpty()) { Toast.makeText(this, "No backups yet: one is made at every import.", Toast.LENGTH_LONG).show(); return; }
         String[] rows = new String[all.size()];
         for (int i = 0; i < rows.length; i++) {

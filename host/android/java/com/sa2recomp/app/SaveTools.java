@@ -42,10 +42,10 @@ import java.util.zip.ZipOutputStream;
  * session/end-saves/ (one of which the caller chooses), a zipped SAVEDATA folder, or any ZIP whose save files have one copy each. An import replaces only
  * the files it brings; the overlay's other saves stay.
  *
- * Backups. Before an import or a restore, every save in the overlay's SAVEDATA is copied to
- * <files>/save-backups/<UTC time>/ (an empty folder when there were none, so a restore can put the
- * overlay back to having none); the newest KEEP are kept. A restore makes the overlay's SAVEDATA
- * exactly the backup's.
+ * Backups. Before an import or a restore, and on Back up saves now (backupNow), every save in the
+ * overlay's SAVEDATA is copied to <files>/save-backups/<UTC time>/ (an empty folder when there were
+ * none, so a restore can put the overlay back to having none); the newest KEEP are kept. A restore
+ * makes the overlay's SAVEDATA exactly the backup's.
  */
 final class SaveTools {
     static final int KEEP = 10;
@@ -153,7 +153,7 @@ final class SaveTools {
     static String importSaves(Context c, List<Found> saves) throws Exception {
         File dir = overlaySaves(c);
         if (dir == null) throw new Exception("The game is not installed yet: install it first.");
-        File backup = backup(c, dir);
+        File backup = backup(backupRoot(c), dir);
         List<String> names = new ArrayList<>();
         for (Found f : saves) {
             File target = existing(dir, f.name);
@@ -164,36 +164,48 @@ final class SaveTools {
         return "Imported " + String.join(", ", names) + ". The old saves are in backup " + backup.getName() + ".";
     }
 
-    /** Backs up the overlay's saves when asked to, unless the newest backup already holds exactly
-     *  them (repeated taps must not push the older backups out of the last KEEP). */
+    /** Backs up the overlay's saves when asked to (the Saves card's button and the Chao boosts). */
     static String backupNow(Context c) throws Exception {
         File dir = overlaySaves(c);
         if (dir == null) throw new Exception("The game is not installed yet: install it first.");
-        Map<String, byte[]> now = savesIn(dir);
-        if (now.isEmpty()) throw new Exception("There are no saves to back up yet: the game writes them when you save.");
-        List<File> all = backups(c);
-        if (!all.isEmpty()) {
-            Map<String, byte[]> last = savesIn(all.get(0));
-            boolean same = last.keySet().equals(now.keySet());
-            for (Map.Entry<String, byte[]> e : now.entrySet())
-                if (same && !Arrays.equals(e.getValue(), last.get(e.getKey()))) same = false;
-            if (same) return "These saves are already in backup " + all.get(0).getName() + ".";
-        }
-        return "Backed up " + now.size() + " saves in backup " + backup(c, dir).getName() + ".";
+        return backupNow(dir, backupRoot(c));
     }
 
+    /** Backs up `dir`'s saves into a new folder of `root`, unless the newest backup already holds
+     *  exactly them (repeated taps must not push the older backups out of the last KEEP). With no
+     *  saves in the overlay the backup is empty, which is still the undo point: restoring it takes the
+     *  overlay back to none, so the game reads the game folder's saves again. Synchronized so a double
+     *  tap cannot make two backups of the same saves. */
+    static synchronized String backupNow(File dir, File root) throws Exception {
+        Map<String, byte[]> now = savesIn(dir);
+        List<File> all = backups(root);
+        boolean same = !all.isEmpty();
+        if (same) {
+            Map<String, byte[]> last = savesIn(all.get(0));
+            same = last.keySet().equals(now.keySet());
+            for (Map.Entry<String, byte[]> e : now.entrySet())
+                if (same && !Arrays.equals(e.getValue(), last.get(e.getKey()))) same = false;
+        }
+        String name = same ? all.get(0).getName() : backup(root, dir).getName();
+        if (!now.isEmpty())
+            return same ? "These saves are already in backup " + name + "."
+                        : "Backed up " + now.size() + " saves in backup " + name + ".";
+        return "The game's saves are all in the game folder, which the app never changes, so backup " + name
+                + (same ? " was already empty" : " is empty") + ". Restoring it returns to those saves.";
+    }
+
+    /** The files backup() copies from `dir`, by name. */
     private static Map<String, byte[]> savesIn(File dir) throws Exception {
         Map<String, byte[]> out = new TreeMap<>();
         File[] fs = dir.listFiles(File::isFile);
         if (fs != null) for (File f : fs)
-            if (isSaveName(f.getName()) && notASave(f.getName(), f.length()) == null)
-                out.put(f.getName(), readAll(new java.io.FileInputStream(f)));
+            if (isSaveName(f.getName())) out.put(f.getName(), readAll(new java.io.FileInputStream(f)));
         return out;
     }
 
-    /** The backups, newest first. */
-    static List<File> backups(Context c) {
-        File[] fs = backupRoot(c).listFiles(File::isDirectory);
+    /** The backups in `root` (backupRoot), newest first. */
+    static List<File> backups(File root) {
+        File[] fs = root.listFiles(File::isDirectory);
         List<File> out = new ArrayList<>(fs == null ? List.of() : Arrays.asList(fs));
         out.sort((a, b) -> b.getName().compareTo(a.getName()));
         return out;
@@ -207,7 +219,7 @@ final class SaveTools {
         Map<String, byte[]> restored = new TreeMap<>();
         File[] fs = from.listFiles(File::isFile);
         if (fs != null) for (File f : fs) if (notASave(f.getName(), f.length()) == null) restored.put(f.getName(), readAll(new java.io.FileInputStream(f)));
-        File backup = backup(c, dir);
+        File backup = backup(backupRoot(c), dir);
         File[] now = dir.listFiles(File::isFile);
         if (now != null) for (File f : now) if (isSaveName(f.getName())) f.delete();
         for (Map.Entry<String, byte[]> e : restored.entrySet()) writeAtomically(new File(dir, e.getKey()), e.getValue());
@@ -243,10 +255,9 @@ final class SaveTools {
 
     // ------------------------------------------------------------ helpers
 
-    private static File backupRoot(Context c) { return new File(c.getFilesDir(), "save-backups"); }
+    static File backupRoot(Context c) { return new File(c.getFilesDir(), "save-backups"); }
 
-    private static File backup(Context c, File dir) throws Exception {
-        File root = backupRoot(c);
+    private static File backup(File root, File dir) throws Exception {
         if (!root.isDirectory() && !root.mkdirs()) throw new Exception("Could not make " + root.getName());
         String stamp = stamp();
         File b = new File(root, stamp);
@@ -259,7 +270,7 @@ final class SaveTools {
         if (fs != null) for (File f : fs)
             if (isSaveName(f.getName()))
                 writeAtomically(new File(b, f.getName()), readAll(new java.io.FileInputStream(f)));
-        List<File> all = backups(c);
+        List<File> all = backups(root);
         for (int i = KEEP; i < all.size(); i++) deleteTree(all.get(i));
         return b;
     }

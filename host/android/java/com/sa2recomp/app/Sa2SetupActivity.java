@@ -500,7 +500,7 @@ public class Sa2SetupActivity extends Activity {
                      "--threads", "0", "--record", new File(logs, "install.runrec").getAbsolutePath()}, code -> {
             if (code == 0) {
                 final boolean start = GameSettings.load(this).autoPlay;
-                addLine("The game folder verified." + (start && !mHoldPlay ? " Starting the game." : " Tap Play."));
+                addLine("The game folder verified." + (!start ? " Tap Play." : mHoldPlay ? "" : " Starting the game."));
                 mAutoPlayDone = true;
                 refresh();
                 if (start) playUnlessHeld();
@@ -610,7 +610,7 @@ public class Sa2SetupActivity extends Activity {
                     copy.delete();
                     if (code == 0) {
                         final boolean start = GameSettings.load(this).autoPlay;
-                        addLine("The game ZIP verified." + (start && !mHoldPlay ? " Starting the game." : " Tap Play."));
+                        addLine("The game ZIP verified." + (!start ? " Tap Play." : mHoldPlay ? "" : " Starting the game."));
                         mAutoPlayDone = true;
                         refresh();
                         if (start) playUnlessHeld();
