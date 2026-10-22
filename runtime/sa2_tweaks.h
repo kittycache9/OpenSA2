@@ -191,6 +191,7 @@
     X(SA2_TWEAK_HIDE_HUD, "hide-hud", "hud hidden", "no score, time, rings and lives counters, and no kart race HUD; button prompts and the radar stay") \
     X(SA2_TWEAK_HIDE_RADAR, "hide-radar", "radar hidden", "no emerald radar, radar beep or radar '!' in the treasure hunts") \
     X(SA2_TWEAK_HIDE_UPGRADE_MODELS, "hide-upgrade-models", "upgrade models hidden", "the upgrades a character has found are not drawn on it in play, but a walker keeps its guns; they still work") \
+    X(SA2_TWEAK_HUNTER_FLAT_GLIDE, "hunter-flat-glide", "glide held level", "Knuckles' and Rouge's glide holds its height instead of sinking, so a glide goes as far as the button is held (the treasure hunts' routes and pits lose their limit)") \
     X(SA2_TWEAK_INFINITE_LIVES, "infinite-lives", "lives held", "dying costs no life, so the lives never run out and there is no game over") \
     X(SA2_TWEAK_M4_TIME_RANK, "m4-time-rank", "mission 4 ranked by time", "mission 4 (the time limit) is ranked by clear time, not score; the save keeps that rank") \
     X(SA2_TWEAK_MECH_HANDLING, "mech-handling", "mech handling", "the walkers (Tails' and Eggman's, and the 2-player Chao Walkers) get ground and air acceleration 1.6 times the game's value, slow down less when you let go and have a higher top speed; starting values, still to be tuned") \
