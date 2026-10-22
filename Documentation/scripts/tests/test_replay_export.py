@@ -117,3 +117,35 @@ def test_a_dry_run_prepares_the_work_folder_and_runs_nothing(tmp_path, capsys):
     assert "session s1, 5 ticks" in out and "SA2_GUEST_CMDLINE=-r" in out
     assert (tmp_path / "work/overlay/resource/gd_PC/SAVEDATA/SONIC2B__ALF").is_file()
     assert not (tmp_path / "work/ticks.tsv").exists()
+
+
+@pytest.mark.parametrize("name", ["/etc", "../../outside", "a/b", "", ".hidden", "x" * 200])
+def test_a_session_name_that_is_not_one_plain_component_names_the_folder_export(name):
+    assert RE.safe_name(name) == "export"
+
+
+def test_a_plain_session_name_is_kept():
+    assert RE.safe_name("20261021-153000") == "20261021-153000"
+
+
+def test_the_manifests_session_name_cannot_move_the_work_folder(tmp_path, monkeypatch):
+    z = export(tmp_path, {"MANIFEST.txt": b"# session: " + str(tmp_path / "victim").encode() + b"\n"})
+    victim = tmp_path / "victim" / "export"
+    victim.mkdir(parents=True)
+    (victim / "canary").write_text("kept")
+    monkeypatch.setattr(RE, "ROOT", tmp_path / "root")
+    RE.main([str(z), "--install", str(tmp_path), "--exe", "x", "--release", str(release(tmp_path)), "--dry-run"])
+    assert (victim / "canary").read_text() == "kept"
+    assert (tmp_path / "root/private/replays/export/export/MANIFEST.txt").is_file()
+
+
+def test_an_export_with_too_many_entries_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(RE, "MAX_ENTRIES", 3)
+    with pytest.raises(RE.Refused, match="entries"):
+        RE.extract(export(tmp_path), tmp_path / "w")
+
+
+def test_an_export_that_unpacks_too_large_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(RE, "MAX_UNPACKED", 10)
+    with pytest.raises(RE.Refused, match="unpacked"):
+        RE.extract(export(tmp_path), tmp_path / "w")

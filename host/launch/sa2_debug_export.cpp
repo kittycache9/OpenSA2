@@ -201,6 +201,10 @@ struct ZipWriter {
         offset += s.size();
     }
     void add(const std::string& name, const std::string& data, bool compress) {
+        if (count == 0xFFFF) {      // the end record's count is 16 bits: a ZIP with more entries would be corrupt
+            ok = false;
+            return;
+        }
         std::string packed;
         const bool deflated = compress && data.size() > 64 && z.pack(data, packed) && packed.size() < data.size();
         const std::string& body = deflated ? packed : data;

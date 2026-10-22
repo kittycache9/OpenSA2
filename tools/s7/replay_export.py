@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -55,6 +56,8 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+MAX_ENTRIES = 20000
+MAX_UNPACKED = 4 << 30
 DEFAULT_RELEASE = ROOT / "private/generated/s7/release/linux-x86_64"
 SAVE_DIR = "resource/gd_PC/SAVEDATA"
 
@@ -83,7 +86,10 @@ def extract(zip_path: Path, dest: Path) -> Path:
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
     with zipfile.ZipFile(zip_path) as z:
-        for info in z.infolist():
+        infos = z.infolist()
+        if len(infos) > MAX_ENTRIES or sum(i.file_size for i in infos) > MAX_UNPACKED:
+            raise Refused(f"{zip_path}: more than {MAX_ENTRIES} entries or {MAX_UNPACKED >> 30} GiB unpacked")
+        for info in infos:
             target = (dest / info.filename).resolve()
             if not str(target).startswith(str(dest.resolve()) + os.sep):
                 raise Refused(f"{zip_path}: the entry {info.filename!r} would land outside the work folder")
@@ -96,6 +102,12 @@ def extract(zip_path: Path, dest: Path) -> Path:
     if not (dest / "MANIFEST.txt").is_file() or not session.is_dir():
         raise Refused(f"{zip_path} is not a Debug Export (no MANIFEST.txt and session/)")
     return session
+
+
+def safe_name(name: str) -> str:
+    """The manifest's session name is the exporter's, so it only names a folder when it is one
+    plain component; anything else (a path, "..") is the folder "export"."""
+    return name if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name) else "export"
 
 
 def session_name(export_dir: Path) -> str:
@@ -306,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
                     for line in z.read("MANIFEST.txt").decode(errors="replace").splitlines():
                         if line.startswith("# session: "):
                             name = line[len("# session: "):].strip()
-            work = ROOT / "private/replays" / name
+            work = ROOT / "private/replays" / safe_name(name)
         work = work.resolve()
         work.mkdir(parents=True, exist_ok=True)
         session = extract(a.export, work / "export")
