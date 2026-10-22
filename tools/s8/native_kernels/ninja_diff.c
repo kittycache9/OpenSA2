@@ -1,7 +1,8 @@
 /* ninja_diff: runtime/sa2_ninja_math.c's native bodies against the lifted double-mode bodies.
  *
  * Subtitle: links the lifted objects of 0x00426CC0 (njCalcPoint), 0x00424FF0 (njInvertMatrix,
- * with 0x00425350, the scale it calls) and 0x00426E40 (njMultiMatrix), built by
+ * with 0x00425350, the scale it calls), 0x00426E40 (njMultiMatrix), 0x0042AAB0 (njSin), 0x0042AC30
+ * (njCos), 0x00427470 (njTranslate_) and 0x004274E0/0x004275B0/0x00427680 (njRotateX_/Y_/Z_), built by
  * tools/s8/perf_f80.py (or for Android by tools/s8/android_game.py) in the double mode, as
  * `__real_`, the runtime's native bodies as `__wrap_`, and runs each kernel on random and
  * edge-case States and guest memories: once with the native bodies off (`sa2_ninja_mode` 0, so
@@ -11,8 +12,8 @@
  * Documentation/scripts/tests/test_ninja_native.py holds its answers.
  *
  *   ninja_diff layout
- *   ninja_diff calcpoint|invert|multiply CASES SEED
- *   ninja_diff bench calcpoint|invert|multiply CALLS
+ *   ninja_diff calcpoint|invert|multiply|sin|cos|translate|rotx|roty|rotz CASES SEED
+ *   ninja_diff bench KERNEL CALLS
  *
  * Prints one JSON object. Per kernel, CASES ordinary cases (realistic values, values with edge
  * cases mixed in, and wild finite bit patterns; every precision control under every rounding
@@ -29,6 +30,7 @@
  */
 #define _GNU_SOURCE
 #include <fenv.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -299,7 +301,7 @@ static uint64_t case_no;
 /* Why the ordinary cases the native bodies handed over went to the lifted body. */
 static uint64_t why_ordinary[WHY_KINDS];
 /* The kernels whose native bodies the second run turns on (NINJA_DIFF_MASK). */
-static int nj_mask = 7;
+static int nj_mask = 0x1FF;
 /* `bench`: the case is set up and not run; the bench calls it. */
 static int bench_setup_only;
 static kernel_fn bench_fn;
@@ -654,6 +656,205 @@ static void case_invert(int guard) {
     run_case(__wrap_sub_424ff0, 1, 0x00424FF0u, guard);
 }
 
+/* ------------------------------------------------------------------ the trig leaves' guest data */
+
+/* njSin's and njCos's quarter-wave table (401h floats at 0x008ACF88, read through DS) and the
+ * interpolation's 0.0625 (a qword at 0x009057A8). */
+#define K_TABLE 0x008ACF88u
+#define K_TABLE_N 0x401u
+#define K_SIXTEENTH 0x009057A8u
+static float sine_table[K_TABLE_N];
+
+static void sine_table_init(void) {
+    for (uint32_t k = 0; k < K_TABLE_N; k++) sine_table[k] = (float)sin((double)k * 3.14159265358979323846 / 2048.0);
+}
+
+/* The table index a BAMS angle reads first, and the step to the next entry, by the quadrant's
+ * symmetry: sin is +i, 800h-i, i-800h, 1000h-i; cos 400h-i, i-400h, 0C00h-i, i-0C00h. */
+static void table_entry(int cosine, uint32_t angle, uint32_t *k, int *step) {
+    const uint32_t i = (angle >> 4) & 0xFFFu, q = i >> 10;
+    static const uint32_t off[2][4] = {{0, 0x800, 0x800, 0x1000}, {0x400, 0x400, 0xC00, 0xC00}};
+    static const int back[2][4] = {{0, 1, 0, 1}, {1, 0, 1, 0}};
+    *step = back[cosine][q] ? -1 : 1;
+    *k = back[cosine][q] ? off[cosine][q] - i : i - off[cosine][q];
+}
+
+static float f_val_of(float real) {
+    const uint32_t r = below(100);
+    if (g_class == 0) return real;
+    if (g_class == 1) return r < 70 ? real : r < 90 ? f_edge() : f_finite_bits();
+    if (g_class == 2) return r < 30 ? real : r < 60 ? f_edge() : f_finite_bits();
+    return r < 40 ? real : f_range_edge();
+}
+
+/* The table and the constant where DS puts them, realistic, with the two entries `angle` reads
+ * (for njSin and njCos) in the case's value class; in the edge and wild classes the constant is
+ * now and then another value. */
+static void put_trig_data(uint32_t dsb, uint32_t angle) {
+    const uint32_t t = dsb + K_TABLE;
+    if (in_guest(t, 4 * K_TABLE_N)) memcpy(G + t, sine_table, sizeof sine_table);
+    else for (uint32_t k = 0; k < K_TABLE_N; k++) putf(t + 4 * k, sine_table[k]);
+    for (int c = 0; c < 2; c++) {
+        uint32_t k;
+        int step;
+        table_entry(c, angle, &k, &step);
+        putf(t + 4 * k, f_val_of(sine_table[k]));
+        if (k + (uint32_t)step < K_TABLE_N) putf(t + 4 * (k + (uint32_t)step), f_val_of(sine_table[k + (uint32_t)step]));
+    }
+    const uint64_t sixteenth = 0x3FB0000000000000ull;
+    const uint64_t v = g_class && below(20) == 0 ? rnd64() : sixteenth;
+    if (in_guest(dsb + K_SIXTEENTH, 8)) memcpy(G + dsb + K_SIXTEENTH, &v, 8);
+}
+
+/* An angle: BAMS in 16 bits, the upper bits whatever now and then; a third on a table entry (the
+ * low four bits zero); the quadrants' edges. */
+static uint32_t pick_angle(void) {
+    static const uint32_t e[] = {0, 1, 0xF, 0x10, 0x3FF0, 0x3FFF, 0x4000, 0x4001, 0x7FFF, 0x8000,
+                                 0x8010, 0xBFFF, 0xC000, 0xFFF0, 0xFFFF, 0x10000, 0xFFFFFFFFu,
+                                 0x80000000u, 0x7FFFFFFFu, 0xFFFF0000u};
+    const uint32_t r = below(100);
+    uint32_t a;
+    if (r < 10) a = e[below(sizeof e / sizeof e[0])];
+    else a = below(4) ? below(0x10000) : rnd32();
+    if (r >= 10 && below(3) == 0) a &= ~0xFu;
+    return a;
+}
+
+/* An entry of the table the case reads, or the constant, made non-finite (for an interpolating
+ * angle either entry, else the first). */
+static void trig_nonfinite(uint32_t dsb, uint32_t angle, int cosine) {
+    uint32_t k;
+    int step;
+    table_entry(cosine, angle, &k, &step);
+    if ((angle & 0xFu) && below(2)) k += (uint32_t)step;
+    putf(dsb + K_TABLE + 4 * k, f_nonfinite());
+}
+
+/* ------------------------------------------------------------------ njSin 0x0042AAB0, njCos 0x0042AC30 */
+
+static const char *const SC_PATHS[4] = {"table", "interpolated", "-", "-"};
+void *__wrap_sub_42aab0(void *, uint32_t, void *);
+void *__wrap_sub_42ac30(void *, uint32_t, void *);
+
+static void case_trig(int guard, int cosine) {
+    g_class = (int)below(N_CLASSES);
+    const uint16_t cw = pick_cw();
+    const uint32_t ssb = pick_base();
+    uint32_t dsb = pick_base();
+    uint32_t angle = pick_angle();
+    if (guard == G_NONFINITE && below(2)) angle |= 1u + below(15);
+    uint32_t e = addr_in(0x01600000u, 0x100000u) & ~3u;
+    uint32_t k;
+    int step;
+    table_entry(cosine, angle, &k, &step);
+    if (guard == G_OVERLAP) {                       /* an entry the body reads in its frame */
+        const uint32_t kk = (angle & 0xFu) && below(2) ? k + (uint32_t)step : k;
+        e = dsb + K_TABLE + 4 * kk + 4 + 4 * below(3);
+    }
+    if (guard == G_RANGE) {
+        if (below(2)) e = GUEST_END + 4 * below(2);
+        else dsb = GUEST_END + 4 * below(2) - K_TABLE - 4 * k;   /* the entry past the end */
+    }
+    nw = 0;
+    add_win(e - 0x20, 0x30);
+    for (int i = 0; i < nw; i++) fill_random(W[i].lo, W[i].len);
+    put_trig_data(dsb, angle);
+    if (guard == G_NONFINITE) trig_nonfinite(dsb, angle, cosine);
+    state_random(S0, cw, ssb, dsb, pick_base());
+    put32(S0 + O_ECX, angle);
+    put32(S0 + O_ESP, e - ssb);
+    g_path = (angle & 0xFu) != 0;
+    snprintf(info, sizeof info, "angle %#x e %#x ds %#x ss %#x", angle, e, dsb, ssb);
+    run_case(cosine ? __wrap_sub_42ac30 : __wrap_sub_42aab0, cosine ? 4 : 3,
+             cosine ? 0x0042AC30u : 0x0042AAB0u, guard);
+}
+static void case_sin(int guard) { case_trig(guard, 0); }
+static void case_cos(int guard) { case_trig(guard, 1); }
+
+/* ------------------------------------------------------------------ njTranslate_ 0x00427470 */
+
+static const char *const TR_PATHS[4] = {"moved", "null", "-", "-"};
+void *__wrap_sub_427470(void *, uint32_t, void *);
+
+static void case_translate(int guard) {
+    g_class = (int)below(N_CLASSES);
+    const uint16_t cw = pick_cw();
+    const uint32_t ssb = pick_base(), dsb = pick_base();
+    uint32_t ma = addr_in(0x01000000u, 0x100000u), e = addr_in(0x01600000u, 0x100000u);
+    const int null = guard == G_NONE && below(8) == 0;
+    if (guard == G_RANGE) {
+        if (below(2)) ma = GUEST_END - 0x30 + 4 * (1 + below(11));
+        else e = GUEST_END - 0x10 + 4 * (1 + below(3));
+    }
+    nw = 0;
+    add_win(ma - 0x10, 0x50);
+    add_win(e - 0x10, 0x30);
+    for (int i = 0; i < nw; i++) fill_random(W[i].lo, W[i].len);
+    put_matrix34(ma);
+    for (int c = 1; c <= 3; c++) putf(e + 4 * c, f_val(f_pos));
+    if (guard == G_NONFINITE) {
+        const uint32_t k = below(15);
+        if (k < 12) putf(ma + 4 * k, f_nonfinite());
+        else putf(e + 4 * (k - 11), f_nonfinite());
+    }
+    state_random(S0, cw, ssb, dsb, pick_base());
+    put32(S0 + O_EAX, null ? 0 : ma - dsb);
+    put32(S0 + O_ESP, e - ssb);
+    g_path = null;
+    snprintf(info, sizeof info, "m %#x e %#x ds %#x ss %#x null %d", ma, e, dsb, ssb, null);
+    run_case(__wrap_sub_427470, 5, 0x00427470u, guard);
+}
+
+/* ------------------------------------------------------------------ njRotateX_/Y_/Z_ */
+
+static const char *const RT_PATHS[4] = {"rotated", "skipped", "-", "-"};
+void *__wrap_sub_4274e0(void *, uint32_t, void *);
+void *__wrap_sub_4275b0(void *, uint32_t, void *);
+void *__wrap_sub_427680(void *, uint32_t, void *);
+
+static void case_rotate(int guard, int axis) {
+    static kernel_fn const fn[3] = {__wrap_sub_4274e0, __wrap_sub_4275b0, __wrap_sub_427680};
+    static const uint32_t va[3] = {0x004274E0u, 0x004275B0u, 0x00427680u};
+    g_class = (int)below(N_CLASSES);
+    const uint16_t cw = pick_cw();
+    uint32_t ssb = pick_base(), dsb = pick_base(), esb = ssb;
+    uint32_t ma = addr_in(0x01000000u, 0x100000u), e = addr_in(0x01600000u, 0x100000u) & ~3u;
+    uint32_t angle = pick_angle();
+    int skip = 0;
+    if (guard == G_NONE && below(8) == 0) {
+        skip = 1;
+        if (below(2)) ma = 0; else angle = 0;
+    }
+    if (guard != G_NONE && angle == 0) angle = 1 + below(0xFFFF);
+    if (guard == G_SEGMENT) while (esb == ssb) esb = below(0x40000) << 2;
+    if (guard == G_OVERLAP) ma = e - 0x54 - 0x2C + 4 * below((0x2C + 0x5C) / 4);
+    if (guard == G_RANGE) {
+        if (below(2)) ma = GUEST_END - 0x30 + 4 * (1 + below(11));
+        else e = GUEST_END - 4 * below(2);
+    }
+    nw = 0;
+    if (ma) add_win(ma - 0x10, 0x50);
+    add_win(e - 0x70, 0x80);
+    for (int i = 0; i < nw; i++) fill_random(W[i].lo, W[i].len);
+    put_trig_data(dsb, angle);
+    if (ma) put_matrix34(ma);
+    put_word(e + 4, angle);
+    if (guard == G_NONFINITE) {
+        if (below(2)) putf(ma + 4 * below(12), f_nonfinite());
+        else trig_nonfinite(dsb, angle, (int)below(2));
+    }
+    state_random(S0, cw, ssb, dsb, esb);
+    S0[O_DF] = guard == G_DF ? (uint8_t)(1 + below(255)) : 0;
+    put32(S0 + O_EBX, ma ? ma - dsb : 0);
+    put32(S0 + O_ESP, e - ssb);
+    g_path = skip;
+    snprintf(info, sizeof info, "m %#x e %#x angle %#x ds %#x ss %#x es %#x", ma, e, angle, dsb, ssb, esb);
+    run_case(fn[axis], 6 + axis, va[axis], guard);
+}
+static void case_rotx(int guard) { case_rotate(guard, 0); }
+static void case_roty(int guard) { case_rotate(guard, 1); }
+static void case_rotz(int guard) { case_rotate(guard, 2); }
+
 /* ------------------------------------------------------------------ main */
 
 static double now_ns(void) {
@@ -671,6 +872,12 @@ static int bench(const char *k, uint64_t calls) {
     if (!strcmp(k, "calcpoint")) { one = case_calcpoint; ki = 0; }
     else if (!strcmp(k, "invert")) { one = case_invert; ki = 1; }
     else if (!strcmp(k, "multiply")) { one = case_multiply; ki = 2; }
+    else if (!strcmp(k, "sin")) { one = case_sin; ki = 3; }
+    else if (!strcmp(k, "cos")) { one = case_cos; ki = 4; }
+    else if (!strcmp(k, "translate")) { one = case_translate; ki = 5; }
+    else if (!strcmp(k, "rotx")) { one = case_rotx; ki = 6; }
+    else if (!strcmp(k, "roty")) { one = case_roty; ki = 7; }
+    else if (!strcmp(k, "rotz")) { one = case_rotz; ki = 8; }
     else return 2;
     double ns[2];
     uint64_t native = 0;
@@ -693,7 +900,7 @@ static int bench(const char *k, uint64_t calls) {
         memcpy(&regs[1], S0 + O_ECX, 4);
         memcpy(&regs[2], S0 + O_EDX, 4);
         memcpy(&regs[3], S0 + O_EBX, 4);
-        sa2_ninja_mode = mode ? 7 : 0;
+        sa2_ninja_mode = mode ? 0x1FF : 0;
         const uint64_t before = sa2_ninja_calls[ki][0];
         const double t0 = now_ns();
         for (uint64_t c = 0; c < calls; c++) {
@@ -745,6 +952,7 @@ int main(int argc, char **argv) {
     if (G == MAP_FAILED) { perror("mmap"); return 2; }
 #endif
     sa2_guest_fast_base = G;
+    sine_table_init();
     fesetround(FE_TONEAREST);
     if (!strcmp(argv[1], "bench")) return bench(argv[2], strtoull(argv[3], NULL, 0));
     const uint64_t ordinary = strtoull(argv[2], NULL, 0);
@@ -758,6 +966,7 @@ int main(int argc, char **argv) {
                                     G_PRECISION, G_HOSTMODE};
     static const int inv_guards[] = {G_NONFINITE, G_OVERLAP, G_RANGE, G_NOBASE, G_OFF, G_SEGMENT,
                                      G_DF, G_PRECISION, G_HOSTMODE};
+    static const int tr_guards[] = {G_NONFINITE, G_RANGE, G_NOBASE, G_OFF, G_PRECISION, G_HOSTMODE};
     const int *guards;
     int nguards;
     if (!strcmp(argv[1], "calcpoint")) {
@@ -766,6 +975,13 @@ int main(int argc, char **argv) {
         one = case_multiply; paths = MM_PATHS; guards = mm_guards; nguards = 8;
     } else if (!strcmp(argv[1], "invert")) {
         one = case_invert; paths = INV_PATHS; guards = inv_guards; nguards = 9;
+    } else if (!strcmp(argv[1], "sin") || !strcmp(argv[1], "cos")) {
+        one = argv[1][0] == 's' ? case_sin : case_cos; paths = SC_PATHS; guards = cp_guards; nguards = 7;
+    } else if (!strcmp(argv[1], "translate")) {
+        one = case_translate; paths = TR_PATHS; guards = tr_guards; nguards = 6;
+    } else if (!strncmp(argv[1], "rot", 3) && strchr("xyz", argv[1][3]) && argv[1][3]) {
+        one = argv[1][3] == 'x' ? case_rotx : argv[1][3] == 'y' ? case_roty : case_rotz;
+        paths = RT_PATHS; guards = inv_guards; nguards = 9;
     } else return 2;
     const uint64_t nguard_cases = ordinary / 16 * (uint64_t)nguards;
     const int trace = getenv("NINJA_DIFF_TRACE") != NULL;

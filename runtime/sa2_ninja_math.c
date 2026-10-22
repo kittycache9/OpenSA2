@@ -16,6 +16,16 @@
  *   0x00426E40  njMultiMatrix: out = A * B on 3x4 matrices (eax A, ecx B, edx out), A or B
  *               first copied to the frame when it is the output; nothing for a null pointer.
  *
+ * and six leaves Dry Lagoon's stage objects and motion call most (the 2026-10-20 study [private]:
+ * an eighth of its main thread), on the same terms:
+ *
+ *   0x0042AAB0  njSin, 0x0042AC30 njCos: a quarter-wave table lookup by the BAMS angle in ecx,
+ *               interpolated by its low four bits; the value in ST0.
+ *   0x00427470  njTranslate_: the 3x4 matrix in eax moved by the vector at [esp+4].
+ *   0x004274E0  njRotateX_, 0x004275B0 njRotateY_, 0x00427680 njRotateZ_: the matrix in ebx
+ *               rotated by the angle at [esp+4], through njSin and njCos (run natively inside).
+ *   Their sums and products are checked by the host's exception flags, as njInvertMatrix's are.
+ *
  * Why: on the user's phone the main thread is the frame's floor on every route (the S8 serial
  * study, private/generated/s8/serial-study/), and these three are among its hottest lifted
  * functions. Design 1.3 allows a patch on the lifted code that changes no game logic; this one
@@ -82,9 +92,10 @@
  *   - the exact build: `sa2_f80_state_double` (tools/s8/f80_shims_double.c's marker) is not
  *     linked, so the slots hold 80-bit images;
  *   - SA2_NINJA_NATIVE=0 in the environment (read once; otherwise a mask of the kernels that run
- *     natively: 1 njCalcPoint, 2 njInvertMatrix, 4 njMultiMatrix; unset or empty is all of
- *     them), or `sa2_ninja_mode` set to 0; SA2_NINJA_NATIVE_STATS (any value) prints the counters
- *     to stderr at exit;
+ *     natively: 1 njCalcPoint, 2 njInvertMatrix, 4 njMultiMatrix, 8 njSin, 10h njCos,
+ *     20h njTranslate_, 40h, 80h, 100h njRotateX_, Y_, Z_; unset or empty is all of them),
+ *     or `sa2_ninja_mode` set to 0; SA2_NINJA_NATIVE_STATS (any value) prints the counters to
+ *     stderr at exit;
  *   - the precision control is not 24 bits, or the host's rounding mode is not the control
  *     word's RC, or the host flushes or treats denormals as zero;
  *   - guest memory is not on its fast path (`sa2_guest_fast_base` NULL) or an access is outside
@@ -124,6 +135,12 @@
 void *__real_sub_426cc0(void *state, uint32_t pc, void *memory);
 void *__real_sub_424ff0(void *state, uint32_t pc, void *memory);
 void *__real_sub_426e40(void *state, uint32_t pc, void *memory);
+void *__real_sub_42aab0(void *state, uint32_t pc, void *memory);
+void *__real_sub_42ac30(void *state, uint32_t pc, void *memory);
+void *__real_sub_427470(void *state, uint32_t pc, void *memory);
+void *__real_sub_4274e0(void *state, uint32_t pc, void *memory);
+void *__real_sub_4275b0(void *state, uint32_t pc, void *memory);
+void *__real_sub_427680(void *state, uint32_t pc, void *memory);
 
 /* Defined only by the double mode's shims (tools/s8/f80_shims_double.c). */
 extern const int sa2_f80_state_double __attribute__((weak));
@@ -135,7 +152,7 @@ enum {
     O_SEG_DS = 2106, O_SEG_CS = 2110,
     O_SS_BASE = 2120, O_ES_BASE = 2136, O_DS_BASE = 2184,
     O_EAX = 2216, O_EBX = 2232, O_ECX = 2248, O_EDX = 2264, O_ESI = 2280, O_EDI = 2296,
-    O_ESP = 2312, O_EIP = 2472,
+    O_ESP = 2312, O_EBP = 2328, O_EIP = 2472,
     O_ST0 = 2486, O_ST_STRIDE = 16,
     O_C0 = 2737, O_C1 = 2739, O_C2 = 2741, O_C3 = 2743, O_PE = 2745, O_UE = 2747, O_OE = 2749,
     O_ZE = 2751, O_DE = 2753, O_IE = 2755,
@@ -150,7 +167,7 @@ const struct sa2_ninja_field { const char *field; uint32_t offset; } sa2_ninja_l
     {"aflag.sf", O_SF}, {"aflag.df", O_DF}, {"aflag.of", O_OF}, {"seg.ds", O_SEG_DS},
     {"seg.cs", O_SEG_CS}, {"addr.ss_base", O_SS_BASE}, {"addr.es_base", O_ES_BASE},
     {"addr.ds_base", O_DS_BASE}, {"gpr.rax", O_EAX}, {"gpr.rbx", O_EBX}, {"gpr.rcx", O_ECX},
-    {"gpr.rdx", O_EDX}, {"gpr.rsi", O_ESI}, {"gpr.rdi", O_EDI}, {"gpr.rsp", O_ESP},
+    {"gpr.rdx", O_EDX}, {"gpr.rsi", O_ESI}, {"gpr.rdi", O_EDI}, {"gpr.rsp", O_ESP}, {"gpr.rbp", O_EBP},
     {"gpr.rip", O_EIP}, {"st.elems[0].val", O_ST0}, {"st.elems[1].val", O_ST0 + O_ST_STRIDE},
     {"sw.c0", O_C0}, {"sw.c1", O_C1}, {"sw.c2", O_C2}, {"sw.c3", O_C3}, {"sw.pe", O_PE},
     {"sw.ue", O_UE}, {"sw.oe", O_OE}, {"sw.ze", O_ZE}, {"sw.de", O_DE}, {"sw.ie", O_IE},
@@ -162,7 +179,8 @@ const uint32_t sa2_ninja_layout_count = sizeof sa2_ninja_layout / sizeof sa2_nin
 
 /* ------------------------------------------------------------------ the switch and the counters */
 
-enum { NJ_CALCPOINT, NJ_INVERT, NJ_MULTIPLY, NJ_KERNELS };
+enum { NJ_CALCPOINT, NJ_INVERT, NJ_MULTIPLY, NJ_SIN, NJ_COS, NJ_TRANSLATE, NJ_ROTX, NJ_ROTY,
+       NJ_ROTZ, NJ_KERNELS };
 /* Why a call went to the lifted body; a native body answers 0 (done) or 1 + one of these. */
 enum { WHY_OFF, WHY_FPU, WHY_MEMORY, WHY_OVERLAP, WHY_VALUE, WHY_SEGMENT, WHY_DF, WHY_KINDS };
 static const char *const WHY_NAME[WHY_KINDS] = {"off", "fpu", "memory", "overlap", "value",
@@ -186,10 +204,19 @@ int sa2_ninja_mode = -1;
 static void nj_stats_print(void) {
     static const char *const name[NJ_KERNELS] = {"njCalcPoint 0x00426CC0",
                                                  "njInvertMatrix 0x00424FF0",
-                                                 "njMultiMatrix 0x00426E40"};
+                                                 "njMultiMatrix 0x00426E40", "njSin 0x0042AAB0",
+                                                 "njCos 0x0042AC30", "njTranslate_ 0x00427470",
+                                                 "njRotateX_ 0x004274E0", "njRotateY_ 0x004275B0",
+                                                 "njRotateZ_ 0x00427680"};
     static const char *const path[NJ_KERNELS][4] = {{"point", "vector", "-", "-"},
                                                     {"inverse", "identity", "-", "-"},
-                                                    {"plain", "a_copied", "b_copied", "null"}};
+                                                    {"plain", "a_copied", "b_copied", "null"},
+                                                    {"table", "interpolated", "-", "-"},
+                                                    {"table", "interpolated", "-", "-"},
+                                                    {"moved", "null", "-", "-"},
+                                                    {"rotated", "skipped", "-", "-"},
+                                                    {"rotated", "skipped", "-", "-"},
+                                                    {"rotated", "skipped", "-", "-"}};
     for (int k = 0; k < NJ_KERNELS; k++) {
         fprintf(stderr, "sa2_ninja_math: %s native %llu lifted %llu (", name[k],
                 (unsigned long long)sa2_ninja_calls[k][0],
@@ -272,6 +299,15 @@ AI void fl_add_store(uint8_t *s, uint32_t a, uint32_t b) {
     s[O_ZF] = (uint8_t)(r == 0);
     s[O_SF] = (uint8_t)(r >> 31);
     s[O_OF] = (uint8_t)((((a ^ r) & (b ^ r)) >> 31) & 1u);
+}
+/* TEST's flags, a register with itself: CF and OF clear, AF clear as remill leaves it. */
+AI void fl_logic_store(uint8_t *s, uint32_t r) {
+    s[O_CF] = 0;
+    s[O_PF] = parity8(r);
+    s[O_AF] = 0;
+    s[O_ZF] = (uint8_t)(r == 0);
+    s[O_SF] = (uint8_t)(r >> 31);
+    s[O_OF] = 0;
 }
 
 /* ------------------------------------------------------------------ the host's floating point */
@@ -370,7 +406,21 @@ AI float f_fst_m(fx *m, int pop, FX_AT, uint32_t dp) {
 /* FSTP ST(i) */
 AI void f_fstp_st(fx *m, int i, FX_AT) { FX_USED; f_set(m, i, f_st(m, 0)); f_pop(m); }
 /* FCHS */
-AI void f_fchs(fx *m, FX_AT) { FX_USED; f_set(m, 0, -f_st(m, 0)); }
+/* FCHS. The negated value is opaque to the compiler, which otherwise moves a negation across the
+ * rounding of the operation that uses it (x * -y as -(x * y), y + x * -s as y - x * s): the same
+ * bits under round to nearest and to zero, one ulp off under round up or down (the aarch64
+ * harness found it in njRotateX_/Y_/Z_). */
+AI float nj_opaque(float x) {
+#if defined(__aarch64__)
+    __asm__("" : "+w"(x));
+#elif defined(__x86_64__) || defined(__i386__)
+    __asm__("" : "+x"(x));
+#else
+    __asm__ volatile("" : "+m"(x));
+#endif
+    return x;
+}
+AI void f_fchs(fx *m, FX_AT) { FX_USED; f_set(m, 0, nj_opaque(-f_st(m, 0))); }
 /* FMUL m32: ST0 = ST0 * m */
 AI void f_fmul_m(fx *m, float x, FX_AT, uint32_t dp) { FX_USED; (void)dp; f_set(m, 0, f_st(m, 0) * x); }
 /* FADD m32: ST0 = ST0 + m */
@@ -1109,3 +1159,566 @@ void *__wrap_sub_424ff0(void *state, uint32_t pc, void *memory) {
     nj_count(NJ_INVERT, why);
     return why ? __real_sub_424ff0(state, pc, memory) : memory;
 }
+
+/* ------------------------------------------------------------------ x87 forms the trig leaves add */
+
+/* FILD m32 of a value below 2^24 in magnitude (exact as a float) */
+AI void f_fild_m(fx *m, int32_t x, FX_AT, uint32_t dp) { FX_USED; (void)dp; f_push(m, (float)x); }
+/* FMUL m64: ST0 = ST0 * m, the double product then rounded to 24 bits (the double mode's PC24
+ * rounding of the same product, while the result is a normal float or exact; a host flag says
+ * when it is not) */
+AI void f_fmul_m64(fx *m, double x, FX_AT, uint32_t dp) {
+    FX_USED; (void)dp;
+    f_set(m, 0, (float)((double)f_st(m, 0) * x));
+}
+
+/* ------------------------------------------------------------------ 0x0042AAB0 njSin, 0x0042AC30 njCos */
+
+/* Both take a BAMS angle in ecx and return the value in ST0: i = (angle >> 4) & 0FFFh indexes a
+ * quarter-wave table of 401h floats by quadrant (i & 0C00h), read forwards or backwards and
+ * negated or not; when the angle's low four bits f are not zero, the entry after it is read too
+ * and the result is a + (b - a) * (f * 0.0625), the constant the qword at 0x009057A8. A frame of
+ * two temporaries (E-8, E-4), and esi pushed at E-0Ch when interpolating; cdecl, ret. */
+#define SC_K 0x009057A8u
+#define SC_K_BITS 0x3FB0000000000000ull                 /* 0.0625 */
+#define SC_LO 0x0Cu
+#define SC_LEN 0x10u
+
+typedef struct {
+    uint32_t a, b;          /* the entries' linear addresses: a, and b when interpolating */
+    uint32_t f;             /* the angle's low four bits: interpolating when not zero */
+    uint8_t neg;
+    uint32_t eax, ecx, edx; /* the registers the body leaves */
+    uint32_t last_ip;       /* the closing FLD m32 [esp]'s offset */
+} sc_plan;
+
+/* Per quadrant, from the guest's code: the table's base, the direction it is read in, the
+ * negation; and the offset of each path's closing FLD m32 [esp] (the interpolated paths share one). */
+static const uint32_t SC_BASE[2][4] = {{0x008ACF88u, 0x008AEF88u, 0x008AAF88u, 0x008B0F88u},
+                                       {0x008ADF88u, 0x008ABF88u, 0x008AFF88u, 0x008A9F88u}};
+static const uint8_t SC_BACK[2][4] = {{0, 1, 0, 1}, {1, 0, 1, 0}};
+static const uint8_t SC_NEG[2][4] = {{0, 0, 1, 1}, {0, 1, 1, 0}};
+/* A backwards quadrant's registers: the first one's code leaves eax = 4i and ecx = base - 4i,
+ * the second's eax = base - 4i and edx = 4i (sin: 400h, 0C00h; cos: 0, 800h). */
+static const uint8_t SC_SECOND[2][4] = {{0, 0, 0, 1}, {0, 0, 1, 0}};
+static const uint16_t SC_IP[2][5] = {{0x058, 0x047, 0x06B, 0x092, 0x171},
+                                     {0x05A, 0x040, 0x076, 0x092, 0x173}};
+
+AI void sc_plan_of(sc_plan *p, int cosine, uint32_t angle, uint32_t ds) {
+    const uint32_t i = (angle >> 4) & 0xFFFu, q = i >> 10, f = angle & 0xFu;
+    const uint32_t base = SC_BASE[cosine][q];
+    const int back = SC_BACK[cosine][q];
+    p->f = f;
+    p->neg = SC_NEG[cosine][q];
+    p->a = ds + (back ? base - 4u * i : base + 4u * i);
+    p->b = back ? p->a - 4u : p->a + 4u;
+    p->last_ip = SC_IP[cosine][f ? 4 : q];
+    p->edx = f;
+    if (!back) {
+        p->eax = i & 0xC00u;
+        p->ecx = i;
+    } else if (f) {
+        p->eax = base - (4u * i + 4u);
+        p->ecx = 4u * i + 4u;
+    } else if (!SC_SECOND[cosine][q]) {
+        p->eax = 4u * i;
+        p->ecx = base - 4u * i;
+    } else {
+        p->eax = base - 4u * i;
+        p->ecx = i;
+        p->edx = 4u * i;
+    }
+}
+
+/* The guest memory a plan reads besides the frame lies on the fast path and apart from the
+ * frame [lo, lo + len), which is written before it is read; the entries are finite and the
+ * constant is 0.0625. 0 when the native body may run. */
+AI int sc_check(const uint8_t *g, const sc_plan *p, uint32_t ds, uint32_t lo, uint32_t len) {
+    if (!in_fast(p->a, 4)) return 1 + WHY_MEMORY;
+    if (p->f && (!in_fast(p->b, 4) || !in_fast(ds + SC_K, 8))) return 1 + WHY_MEMORY;
+    if (!apart(lo, len, p->a, 4)) return 1 + WHY_OVERLAP;
+    if (p->f && (!apart(lo, len, p->b, 4) || !apart(lo, len, ds + SC_K, 8))) return 1 + WHY_OVERLAP;
+    if (!finite32(ld32(g + p->a))) return 1 + WHY_VALUE;
+    if (p->f && (!finite32(ld32(g + p->b)) || ld64(g + ds + SC_K) != SC_K_BITS)) return 1 + WHY_VALUE;
+    return 0;
+}
+
+/* The body from its entry: `fe` the frame shadow at E (fe[-8] is E-8), `esi` the register the
+ * interpolated path pushes. Leaves the result in ST0 and returns it. */
+AI float sc_run(fx *m, const uint8_t *g, uint8_t *fe, uint32_t E, const sc_plan *p, uint32_t esi,
+                uint32_t pc) {
+    if (!p->f) {
+        f_fld_m(m, ldf(g + p->a), 0x100, pc, p->a);                  /* fld [table]         */
+        if (p->neg) f_fchs(m, 0x1E0, pc);                            /* fchs                */
+        stf(fe - 8, f_fst_m(m, 1, 0x11C, pc, E - 8));                /* fstp [esp]          */
+        f_fld_m(m, ldf(fe - 8), 0x104, pc + p->last_ip, E - 8);      /* fld [esp]           */
+        return f_st(m, 0);
+    }
+    st32(fe - 0xC, esi);                                             /* push esi            */
+    f_fld_m(m, ldf(g + p->a), 0x100, pc, p->a);                      /* fld [table]         */
+    if (p->neg) f_fchs(m, 0x1E0, pc);                                /* fchs                */
+    stf(fe - 8, f_fst_m(m, 1, 0x15C, pc, E - 8));                    /* fstp [esp+4]        */
+    f_fld_m(m, ldf(g + p->b), 0x100, pc, p->b);                      /* fld [table +- 4]    */
+    if (p->neg) f_fchs(m, 0x1E0, pc);                                /* fchs                */
+    stf(fe - 4, f_fst_m(m, 1, 0x15C, pc, E - 4));                    /* fstp [esp+8]        */
+    f_fld_m(m, ldf(fe - 4), 0x144, pc, E - 4);                       /* fld [esp+8]         */
+    f_fld_m(m, ldf(fe - 8), 0x144, pc, E - 8);                       /* fld [esp+4]         */
+    f_fld_st(m, 0, 0x1C0, pc);                                       /* fld st(0)           */
+    f_fsubp(m, 2, 0x2EA, pc);                                        /* fsubp st(2),st      */
+    f_fxch(m, 1, 0x1C9, pc);                                         /* fxch                */
+    stf(fe - 4, f_fst_m(m, 1, 0x15C, pc, E - 4));                    /* fstp [esp+8]        */
+    f_fld_m(m, ldf(fe - 4), 0x144, pc, E - 4);                       /* fld [esp+8]         */
+    st32(fe - 4, p->f);                                              /* mov [esp+8],edx     */
+    f_fild_m(m, (int32_t)p->f, 0x344, pc, E - 4);                    /* fild [esp+8]        */
+    f_fmul_m64(m, 0.0625, 0x00D, pc, SC_K);                          /* fmul qword [9057A8] */
+    stf(fe - 4, f_fst_m(m, 1, 0x15C, pc, E - 4));                    /* pop esi ; fstp [esp+4] */
+    f_fmul_m(m, ldf(fe - 4), 0x04C, pc, E - 4);                      /* fmul [esp+4]        */
+    f_faddp(m, 1, 0x2C1, pc);                                        /* faddp               */
+    stf(fe - 8, f_fst_m(m, 1, 0x11C, pc, E - 8));                    /* fstp [esp]          */
+    f_fld_m(m, ldf(fe - 8), 0x104, pc + p->last_ip, E - 8);          /* fld [esp]           */
+    return f_st(m, 0);
+}
+
+/* The x87 flags a sin or cos body leaves: FADDP cleared C0, C2, C3 and FLD ST(0) IE on the
+ * interpolated path; the closing FLD m32 ORs its denormal test into the DE its FSTP cleared. */
+AI void sc_flags(uint8_t *s, const sc_plan *p, float r) {
+    uint32_t b;
+    memcpy(&b, &r, 4);
+    if (p->f) s[O_C0] = s[O_C2] = s[O_C3] = s[O_IE] = 0;
+    s[O_DE] = denormal32(b);
+}
+
+AI int sc_native(uint8_t *s, uint32_t pc, int cosine) {
+    uint8_t *g = sa2_guest_fast_base;
+    const uint32_t esp = ld32(s + O_ESP), ds = ld32(s + O_DS_BASE);
+    const uint32_t E = ld32(s + O_SS_BASE) + esp, F = E - SC_LO;
+    if (!g || !in_fast(F, SC_LEN)) return 1 + WHY_MEMORY;
+    sc_plan p;
+    sc_plan_of(&p, cosine, ld32(s + O_ECX), ds);
+    const int why = sc_check(g, &p, ds, F, SC_LEN);
+    if (why) return why;
+    uint8_t sh[SC_LEN];
+    memcpy(sh, g + F, SC_LEN);
+    fx mx, *m = &mx;
+    f_init(m);
+    nj_exc_clear();
+    const float r = sc_run(m, g, sh + SC_LO, E, &p, ld32(s + O_ESI), pc);
+    slots st;
+    f_slots(m, s, &st);
+    NJ_SETTLE(sh);
+    NJ_SETTLE(&st);
+    if (nj_exc_raised()) return 1 + WHY_VALUE;
+    memcpy(g + F, sh, SC_LEN);
+    f_store(m, &st, s, ld16(s + O_SWD), 0x104, pc + p.last_ip, E - 8);
+    sc_flags(s, &p, r);
+    fl_add_store(s, esp - 8, 8);                                     /* add esp,8           */
+    st32(s + O_EAX, p.eax);
+    st32(s + O_ECX, p.ecx);
+    st32(s + O_EDX, p.edx);
+    st32(s + O_EIP, ld32(sh + SC_LO));                               /* ret                 */
+    st32(s + O_ESP, esp + 4);
+    sa2_ninja_paths[cosine ? NJ_COS : NJ_SIN][p.f != 0]++;
+    return 0;
+}
+
+__attribute__((used, retain))
+void *__wrap_sub_42aab0(void *state, uint32_t pc, void *memory) {
+    uint8_t *s = state;
+    const uint16_t cw = ld16(s + O_CWD);
+    const int why = !nj_on(NJ_SIN) ? 1 + WHY_OFF
+                  : (cw & 0x0300u) || !nj_env_ok(cw) ? 1 + WHY_FPU : sc_native(s, pc, 0);
+    nj_count(NJ_SIN, why);
+    return why ? __real_sub_42aab0(state, pc, memory) : memory;
+}
+
+__attribute__((used, retain))
+void *__wrap_sub_42ac30(void *state, uint32_t pc, void *memory) {
+    uint8_t *s = state;
+    const uint16_t cw = ld16(s + O_CWD);
+    const int why = !nj_on(NJ_COS) ? 1 + WHY_OFF
+                  : (cw & 0x0300u) || !nj_env_ok(cw) ? 1 + WHY_FPU : sc_native(s, pc, 1);
+    nj_count(NJ_COS, why);
+    return why ? __real_sub_42ac30(state, pc, memory) : memory;
+}
+
+/* ------------------------------------------------------------------ 0x00427470 njTranslate_ */
+
+/* The matrix in eax (3x4, nothing for a null pointer) moved by the vector at [esp+4]: each row's
+ * translation += the row's 3x3 dot the vector; no frame, ret. Every argument is read before the
+ * first store, and each row's store is its own translation, read just before it. */
+#define TR_ARG(o) (g + E + (o))
+
+AI int tr_native(uint8_t *s, uint32_t pc) {
+    uint8_t *g = sa2_guest_fast_base;
+    const uint32_t esp = ld32(s + O_ESP), eax = ld32(s + O_EAX);
+    const uint32_t E = ld32(s + O_SS_BASE) + esp, ma = ld32(s + O_DS_BASE) + eax;
+    if (!g || !in_fast(E, 0x10)) return 1 + WHY_MEMORY;
+    if (!eax) {                                                      /* test eax,eax ; je   */
+        fl_logic_store(s, 0);
+        st32(s + O_EIP, ld32(g + E));                                /* ret                 */
+        st32(s + O_ESP, esp + 4);
+        sa2_ninja_paths[NJ_TRANSLATE][1]++;
+        return 0;
+    }
+    if (!in_fast(ma, 0x30)) return 1 + WHY_MEMORY;
+    uint32_t ok = 1;
+    for (int k = 0; k < 12; k++) ok &= finite32(ld32(g + ma + 4u * k));
+    for (int k = 1; k <= 3; k++) ok &= finite32(ld32(TR_ARG(4 * k)));
+    if (!ok) return 1 + WHY_VALUE;
+    uint8_t ob[0x30];
+#define M(o) (g + ma + (o))
+#define F(o) TR_ARG(o)
+#define OUT(o) (ob + (o))
+    fx mx, *m = &mx;
+    f_init(m);
+    nj_exc_clear();
+    f_fld_m(m, ldf(M(0x4)), 0x140, pc + 0x004, ma + 0x4);                               /* +004 fld st,dword ptr [eax+4] */
+    f_fld_m(m, ldf(F(0x8)), 0x144, pc + 0x007, E + 0x8);                                /* +007 fld st,dword ptr [esp+8] */
+    f_fld_st(m, 0, 0x1C0, pc + 0x00B);                                                  /* +00B fld st,st(0) */
+    f_fmulp(m, 2, 0x2CA, pc + 0x00D);                                                   /* +00D fmulp st(2),st */
+    f_fld_m(m, ldf(M(0x0)), 0x100, pc + 0x00F, ma + 0x0);                               /* +00F fld st,dword ptr [eax] */
+    f_fld_m(m, ldf(F(0x4)), 0x144, pc + 0x011, E + 0x4);                                /* +011 fld st,dword ptr [esp+4] */
+    f_fld_st(m, 0, 0x1C0, pc + 0x015);                                                  /* +015 fld st,st(0) */
+    f_fmulp(m, 2, 0x2CA, pc + 0x017);                                                   /* +017 fmulp st(2),st */
+    f_fxch(m, 3, 0x1CB, pc + 0x019);                                                    /* +019 fxch st,st(3) */
+    f_faddp(m, 1, 0x2C1, pc + 0x01B);                                                   /* +01B faddp */
+    f_fld_m(m, ldf(M(0x8)), 0x140, pc + 0x01D, ma + 0x8);                               /* +01D fld st,dword ptr [eax+8] */
+    f_fld_m(m, ldf(F(0xc)), 0x144, pc + 0x020, E + 0xc);                                /* +020 fld st,dword ptr [esp+0Ch] */
+    f_fld_st(m, 0, 0x1C0, pc + 0x024);                                                  /* +024 fld st,st(0) */
+    f_fmulp(m, 2, 0x2CA, pc + 0x026);                                                   /* +026 fmulp st(2),st */
+    f_fxch(m, 2, 0x1CA, pc + 0x028);                                                    /* +028 fxch st,st(2) */
+    f_faddp(m, 1, 0x2C1, pc + 0x02A);                                                   /* +02A faddp */
+    f_fadd_m(m, ldf(M(0xc)), 0x040, pc + 0x02C, ma + 0xc);                              /* +02C fadd st,dword ptr [eax+0Ch] */
+    stf(OUT(0xc), f_fst_m(m, 1, 0x158, pc + 0x02F, ma + 0xc));                          /* +02F fstp dword ptr [eax+0Ch],st */
+    f_fld_m(m, ldf(M(0x10)), 0x140, pc + 0x032, ma + 0x10);                             /* +032 fld st,dword ptr [eax+10h] */
+    f_fmul_st0(m, 3, 0x0CB, pc + 0x035);                                                /* +035 fmul st,st(3) */
+    f_fld_m(m, ldf(M(0x14)), 0x140, pc + 0x037, ma + 0x14);                             /* +037 fld st,dword ptr [eax+14h] */
+    f_fmul_st0(m, 3, 0x0CB, pc + 0x03A);                                                /* +03A fmul st,st(3) */
+    f_faddp(m, 1, 0x2C1, pc + 0x03C);                                                   /* +03C faddp */
+    f_fld_m(m, ldf(M(0x18)), 0x140, pc + 0x03E, ma + 0x18);                             /* +03E fld st,dword ptr [eax+18h] */
+    f_fmul_st0(m, 2, 0x0CA, pc + 0x041);                                                /* +041 fmul st,st(2) */
+    f_faddp(m, 1, 0x2C1, pc + 0x043);                                                   /* +043 faddp */
+    f_fadd_m(m, ldf(M(0x1c)), 0x040, pc + 0x045, ma + 0x1c);                            /* +045 fadd st,dword ptr [eax+1Ch] */
+    stf(OUT(0x1c), f_fst_m(m, 1, 0x158, pc + 0x048, ma + 0x1c));                        /* +048 fstp dword ptr [eax+1Ch],st */
+    f_fld_m(m, ldf(M(0x20)), 0x140, pc + 0x04B, ma + 0x20);                             /* +04B fld st,dword ptr [eax+20h] */
+    f_fmulp(m, 3, 0x2CB, pc + 0x04E);                                                   /* +04E fmulp st(3),st */
+    f_fld_m(m, ldf(M(0x24)), 0x140, pc + 0x050, ma + 0x24);                             /* +050 fld st,dword ptr [eax+24h] */
+    f_fmulp(m, 2, 0x2CA, pc + 0x053);                                                   /* +053 fmulp st(2),st */
+    f_fxch(m, 2, 0x1CA, pc + 0x055);                                                    /* +055 fxch st,st(2) */
+    f_faddp(m, 1, 0x2C1, pc + 0x057);                                                   /* +057 faddp */
+    f_fld_m(m, ldf(M(0x28)), 0x140, pc + 0x059, ma + 0x28);                             /* +059 fld st,dword ptr [eax+28h] */
+    f_fmulp(m, 2, 0x2CA, pc + 0x05C);                                                   /* +05C fmulp st(2),st */
+    f_faddp(m, 1, 0x2C1, pc + 0x05E);                                                   /* +05E faddp */
+    f_fadd_m(m, ldf(M(0x2c)), 0x040, pc + 0x060, ma + 0x2c);                            /* +060 fadd st,dword ptr [eax+2Ch] */
+    stf(OUT(0x2c), f_fst_m(m, 1, 0x158, pc + 0x063, ma + 0x2c));                        /* +063 fstp dword ptr [eax+2Ch],st */
+#undef M
+#undef F
+#undef OUT
+    slots st;
+    f_slots(m, s, &st);
+    NJ_SETTLE(ob);
+    NJ_SETTLE(&st);
+    if (nj_exc_raised()) return 1 + WHY_VALUE;
+    memcpy(g + ma + 0x0C, ob + 0x0C, 4);
+    memcpy(g + ma + 0x1C, ob + 0x1C, 4);
+    memcpy(g + ma + 0x2C, ob + 0x2C, 4);
+    /* FADDP cleared C0, C2, C3, FLD ST(0) IE, the last FSTP DE. */
+    f_store(m, &st, s, ld16(s + O_SWD), 0x158, pc + 0x063, ma + 0x2C);
+    s[O_C0] = s[O_C2] = s[O_C3] = 0;
+    s[O_DE] = 0;
+    s[O_IE] = 0;
+    fl_logic_store(s, eax);
+    st32(s + O_EIP, ld32(g + E));                                    /* ret                 */
+    st32(s + O_ESP, esp + 4);
+    sa2_ninja_paths[NJ_TRANSLATE][0]++;
+    return 0;
+}
+
+__attribute__((used, retain))
+void *__wrap_sub_427470(void *state, uint32_t pc, void *memory) {
+    uint8_t *s = state;
+    const uint16_t cw = ld16(s + O_CWD);
+    const int why = !nj_on(NJ_TRANSLATE) ? 1 + WHY_OFF
+                  : (cw & 0x0300u) || !nj_env_ok(cw) ? 1 + WHY_FPU : tr_native(s, pc);
+    nj_count(NJ_TRANSLATE, why);
+    return why ? __real_sub_427470(state, pc, memory) : memory;
+}
+
+/* ------------------------------------------------------------------ njRotateX_/Y_/Z_ */
+
+/* 0x004274E0, 0x004275B0, 0x00427680: the matrix in ebx (3x4) rotated about one axis by the BAMS
+ * angle at [esp+4]; nothing for a null matrix or a zero angle. Each pushes ebp, esi and edi, copies
+ * the matrix to E-30h with `rep movsd` (DS:esi to ES:edi), calls njSin and njCos with ecx the
+ * angle (the return addresses at E-48h, their frames below), keeps their results at E-38h and
+ * E-34h and writes six of the matrix's floats from the copy; pop, add esp,38h, ret. The frame
+ * the bodies touch is E-54h to E+8 (the angle). */
+#define RT_LO 0x54u
+#define RT_LEN 0x5Cu
+#define RT_SC (-0x48)                                   /* njSin's and njCos's entry ESP */
+
+enum { RT_X, RT_Y, RT_Z };
+/* The last FSTP: its FOP, offset and output. */
+static const uint16_t RT_LAST_IP[3] = {0x0BE, 0x0BB, 0x0BD};
+static const uint8_t RT_LAST_OUT[3] = {0x28, 0x28, 0x24};
+static const uint8_t RT_OUTS[3][6] = {{0x04, 0x08, 0x14, 0x18, 0x24, 0x28},
+                                      {0x00, 0x08, 0x10, 0x18, 0x20, 0x28},
+                                      {0x00, 0x04, 0x10, 0x14, 0x20, 0x24}};
+
+AI int rt_native(uint8_t *s, uint32_t pc, int axis) {
+    uint8_t *g = sa2_guest_fast_base;
+    const uint32_t esp = ld32(s + O_ESP), ss = ld32(s + O_SS_BASE), ds = ld32(s + O_DS_BASE);
+    const uint32_t E = ss + esp, F = E - RT_LO;
+    if (!g || !in_fast(F, RT_LEN)) return 1 + WHY_MEMORY;
+    const uint32_t ebx = ld32(s + O_EBX), angle = ld32(g + E + 4);   /* mov ebp,[esp+40h]  */
+    if (!ebx || !angle) {                                            /* test ; je           */
+        st32(g + E - 0x3C, ld32(s + O_EBP));                         /* push ebp            */
+        fl_add_store(s, esp - 0x38, 0x38);                           /* pop ebp ; add esp,38h */
+        st32(s + O_EIP, ld32(g + E));                                /* ret                 */
+        st32(s + O_ESP, esp + 4);
+        sa2_ninja_paths[NJ_ROTX + axis][1]++;
+        return 0;
+    }
+    const uint32_t ma = ds + ebx;
+    if (!in_fast(ma, 0x30)) return 1 + WHY_MEMORY;
+    if (s[O_DF]) return 1 + WHY_DF;                                  /* rep movsd forwards  */
+    if (ld32(s + O_ES_BASE) != ss) return 1 + WHY_SEGMENT;           /* copied through ES   */
+    if (!apart(F, RT_LEN, ma, 0x30)) return 1 + WHY_OVERLAP;
+    sc_plan ps, pc_;
+    sc_plan_of(&ps, 0, angle, ds);
+    sc_plan_of(&pc_, 1, angle, ds);
+    int why = sc_check(g, &ps, ds, F, RT_LEN);
+    if (!why) why = sc_check(g, &pc_, ds, F, RT_LEN);
+    if (why) return why;
+    uint32_t ok = 1;
+    for (int k = 0; k < 12; k++) ok &= finite32(ld32(g + ma + 4u * k));
+    if (!ok) return 1 + WHY_VALUE;
+    uint8_t sh[RT_LEN], ob[0x30];
+#define F(o) (sh + RT_LO + (o))
+#define OUT(o) (ob + (o))
+    memcpy(sh, g + F, RT_LEN);
+    st32(F(-0x3C), ld32(s + O_EBP));                                 /* push ebp            */
+    st32(F(-0x40), ld32(s + O_ESI));                                 /* push esi            */
+    st32(F(-0x44), ld32(s + O_EDI));                                 /* push edi            */
+    memcpy(F(-0x30), g + ma, 0x30);                                  /* rep movsd           */
+    fx mx, *m = &mx;
+    f_init(m);
+    nj_exc_clear();
+    st32(F(RT_SC), pc + 0x02E);                                      /* call njSin          */
+    sc_run(m, g, F(RT_SC), E + RT_SC, &ps, ebx + 0x30, 0x0042AAB0u);
+    switch (axis) {
+    case RT_X:
+        stf(F(-0x34), f_fst_m(m, 1, 0x15C, pc + 0x030, E - 0x34));                         /* +030 fstp dword ptr [esp+10h],st */
+        break;
+    case RT_Y:
+        stf(F(-0x38), f_fst_m(m, 1, 0x15C, pc + 0x030, E - 0x38));                         /* +030 fstp dword ptr [esp+0Ch],st */
+        break;
+    default:
+        stf(F(-0x34), f_fst_m(m, 1, 0x15C, pc + 0x030, E - 0x34));                         /* +030 fstp dword ptr [esp+10h],st */
+        break;
+    }
+    st32(F(RT_SC), pc + 0x039);                                      /* call njCos          */
+    sc_run(m, g, F(RT_SC), E + RT_SC, &pc_, ebx + 0x30, 0x0042AC30u);
+    switch (axis) {
+    case RT_X:
+        stf(F(-0x38), f_fst_m(m, 1, 0x15C, pc + 0x039, E - 0x38));                         /* +039 fstp dword ptr [esp+0Ch],st */
+        f_fld_m(m, ldf(F(-0x2c)), 0x144, pc + 0x03E, E - 0x2c);                            /* +03E fld st,dword ptr [esp+14h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x043);                                                  /* +043 fld st,st(0) */
+        f_fld_m(m, ldf(F(-0x38)), 0x144, pc + 0x045, E - 0x38);                            /* +045 fld st,dword ptr [esp+4] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x049);                                                  /* +049 fld st,st(0) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x04B);                                                   /* +04B fmulp st(2),st */
+        f_fld_m(m, ldf(F(-0x28)), 0x144, pc + 0x04D, E - 0x28);                            /* +04D fld st,dword ptr [esp+14h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x051);                                                  /* +051 fld st,st(0) */
+        f_fld_m(m, ldf(F(-0x34)), 0x144, pc + 0x053, E - 0x34);                            /* +053 fld st,dword ptr [esp+8] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x057);                                                  /* +057 fld st,st(0) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x059);                                                   /* +059 fmulp st(2),st */
+        f_fxch(m, 4, 0x1CC, pc + 0x05B);                                                    /* +05B fxch st,st(4) */
+        f_faddp(m, 1, 0x2C1, pc + 0x05D);                                                   /* +05D faddp */
+        stf(OUT(0x4), f_fst_m(m, 1, 0x15B, pc + 0x05F, ma + 0x4));                          /* +05F fstp dword ptr [ebx+4],st */
+        f_fld_st(m, 2, 0x1C2, pc + 0x062);                                                  /* +062 fld st,st(2) */
+        f_fchs(m, 0x1E0, pc + 0x064);                                                       /* +064 fchs */
+        stf(F(-0x34), f_fst_m(m, 1, 0x15C, pc + 0x066, E - 0x34));                         /* +066 fstp dword ptr [esp+8],st */
+        f_fld_m(m, ldf(F(-0x34)), 0x144, pc + 0x06A, E - 0x34);                            /* +06A fld st,dword ptr [esp+8] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x06E);                                                  /* +06E fld st,st(0) */
+        f_fmulp(m, 5, 0x2CD, pc + 0x070);                                                   /* +070 fmulp st(5),st */
+        f_fld_st(m, 2, 0x1C2, pc + 0x072);                                                  /* +072 fld st,st(2) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x074);                                                   /* +074 fmulp st(2),st */
+        f_fxch(m, 4, 0x1CC, pc + 0x076);                                                    /* +076 fxch st,st(4) */
+        f_faddp(m, 1, 0x2C1, pc + 0x078);                                                   /* +078 faddp */
+        stf(OUT(0x8), f_fst_m(m, 1, 0x15B, pc + 0x07A, ma + 0x8));                          /* +07A fstp dword ptr [ebx+8],st */
+        f_fld_m(m, ldf(F(-0x1c)), 0x144, pc + 0x07D, E - 0x1c);                            /* +07D fld st,dword ptr [esp+20h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x081);                                                  /* +081 fld st,st(0) */
+        f_fmul_st0(m, 2, 0x0CA, pc + 0x083);                                                /* +083 fmul st,st(2) */
+        f_fld_m(m, ldf(F(-0x18)), 0x144, pc + 0x085, E - 0x18);                            /* +085 fld st,dword ptr [esp+24h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x089);                                                  /* +089 fld st,st(0) */
+        f_fmul_st0(m, 5, 0x0CD, pc + 0x08B);                                                /* +08B fmul st,st(5) */
+        f_faddp(m, 2, 0x2C2, pc + 0x08D);                                                   /* +08D faddp st(2),st */
+        f_fxch(m, 1, 0x1C9, pc + 0x08F);                                                    /* +08F fxch */
+        stf(OUT(0x14), f_fst_m(m, 1, 0x15B, pc + 0x091, ma + 0x14));                        /* +091 fstp dword ptr [ebx+14h],st */
+        f_fld_st(m, 4, 0x1C4, pc + 0x094);                                                  /* +094 fld st,st(4) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x096);                                                   /* +096 fmulp st(2),st */
+        f_fmul_st0(m, 2, 0x0CA, pc + 0x098);                                                /* +098 fmul st,st(2) */
+        f_faddp(m, 1, 0x2C1, pc + 0x09A);                                                   /* +09A faddp */
+        stf(OUT(0x18), f_fst_m(m, 1, 0x15B, pc + 0x09C, ma + 0x18));                        /* +09C fstp dword ptr [ebx+18h],st */
+        f_fld_m(m, ldf(F(-0xc)), 0x144, pc + 0x09F, E - 0xc);                              /* +09F fld st,dword ptr [esp+30h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x0A3);                                                  /* +0A3 fld st,st(0) */
+        f_fmul_st0(m, 2, 0x0CA, pc + 0x0A5);                                                /* +0A5 fmul st,st(2) */
+        f_fld_m(m, ldf(F(-0x8)), 0x144, pc + 0x0A7, E - 0x8);                              /* +0A7 fld st,dword ptr [esp+34h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x0AB);                                                  /* +0AB fld st,st(0) */
+        f_fmulp(m, 5, 0x2CD, pc + 0x0AD);                                                   /* +0AD fmulp st(5),st */
+        f_fxch(m, 1, 0x1C9, pc + 0x0AF);                                                    /* +0AF fxch */
+        f_faddp(m, 4, 0x2C4, pc + 0x0B1);                                                   /* +0B1 faddp st(4),st */
+        f_fxch(m, 3, 0x1CB, pc + 0x0B3);                                                    /* +0B3 fxch st,st(3) */
+        stf(OUT(0x24), f_fst_m(m, 1, 0x15B, pc + 0x0B5, ma + 0x24));                        /* +0B5 fstp dword ptr [ebx+24h],st */
+        f_fmulp(m, 3, 0x2CB, pc + 0x0B8);                                                   /* +0B8 fmulp st(3),st */
+        f_fmulp(m, 1, 0x2C9, pc + 0x0BA);                                                   /* +0BA fmulp */
+        f_faddp(m, 1, 0x2C1, pc + 0x0BC);                                                   /* +0BC faddp */
+        stf(OUT(0x28), f_fst_m(m, 1, 0x15B, pc + 0x0BE, ma + 0x28));                        /* +0BE fstp dword ptr [ebx+28h],st */
+        break;
+    case RT_Y:
+        stf(F(-0x34), f_fst_m(m, 1, 0x15C, pc + 0x039, E - 0x34));                         /* +039 fstp dword ptr [esp+10h],st */
+        f_fld_m(m, ldf(F(-0x38)), 0x144, pc + 0x03E, E - 0x38);                            /* +03E fld st,dword ptr [esp+8] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x043);                                                  /* +043 fld st,st(0) */
+        f_fchs(m, 0x1E0, pc + 0x045);                                                       /* +045 fchs */
+        stf(F(-0x38), f_fst_m(m, 1, 0x15C, pc + 0x047, E - 0x38));                         /* +047 fstp dword ptr [esp+4],st */
+        f_fld_m(m, ldf(F(-0x38)), 0x144, pc + 0x04B, E - 0x38);                            /* +04B fld st,dword ptr [esp+4] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x04F);                                                  /* +04F fld st,st(0) */
+        f_fld_m(m, ldf(F(-0x28)), 0x144, pc + 0x051, E - 0x28);                            /* +051 fld st,dword ptr [esp+14h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x055);                                                  /* +055 fld st,st(0) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x057);                                                   /* +057 fmulp st(2),st */
+        f_fld_m(m, ldf(F(-0x30)), 0x144, pc + 0x059, E - 0x30);                            /* +059 fld st,dword ptr [esp+0Ch] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x05D);                                                  /* +05D fld st,st(0) */
+        f_fld_m(m, ldf(F(-0x34)), 0x144, pc + 0x05F, E - 0x34);                            /* +05F fld st,dword ptr [esp+8] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x063);                                                  /* +063 fld st,st(0) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x065);                                                   /* +065 fmulp st(2),st */
+        f_fxch(m, 4, 0x1CC, pc + 0x067);                                                    /* +067 fxch st,st(4) */
+        f_faddp(m, 1, 0x2C1, pc + 0x069);                                                   /* +069 faddp */
+        stf(OUT(0x0), f_fst_m(m, 1, 0x11B, pc + 0x06B, ma + 0x0));                          /* +06B fstp dword ptr [ebx],st */
+        f_fld_st(m, 2, 0x1C2, pc + 0x06D);                                                  /* +06D fld st,st(2) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x06F);                                                   /* +06F fmulp st(2),st */
+        f_fmul_st0(m, 4, 0x0CC, pc + 0x071);                                                /* +071 fmul st,st(4) */
+        f_faddp(m, 1, 0x2C1, pc + 0x073);                                                   /* +073 faddp */
+        stf(OUT(0x8), f_fst_m(m, 1, 0x15B, pc + 0x075, ma + 0x8));                          /* +075 fstp dword ptr [ebx+8],st */
+        f_fld_st(m, 1, 0x1C1, pc + 0x078);                                                  /* +078 fld st,st(1) */
+        f_fld_m(m, ldf(F(-0x18)), 0x144, pc + 0x07A, E - 0x18);                            /* +07A fld st,dword ptr [esp+24h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x07E);                                                  /* +07E fld st,st(0) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x080);                                                   /* +080 fmulp st(2),st */
+        f_fld_m(m, ldf(F(-0x20)), 0x144, pc + 0x082, E - 0x20);                            /* +082 fld st,dword ptr [esp+1Ch] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x086);                                                  /* +086 fld st,st(0) */
+        f_fmul_st0(m, 4, 0x0CC, pc + 0x088);                                                /* +088 fmul st,st(4) */
+        f_faddp(m, 3, 0x2C3, pc + 0x08A);                                                   /* +08A faddp st(3),st */
+        f_fxch(m, 2, 0x1CA, pc + 0x08C);                                                    /* +08C fxch st,st(2) */
+        stf(OUT(0x10), f_fst_m(m, 1, 0x15B, pc + 0x08E, ma + 0x10));                        /* +08E fstp dword ptr [ebx+10h],st */
+        f_fmul_st0(m, 2, 0x0CA, pc + 0x091);                                                /* +091 fmul st,st(2) */
+        f_fld_st(m, 4, 0x1C4, pc + 0x093);                                                  /* +093 fld st,st(4) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x095);                                                   /* +095 fmulp st(2),st */
+        f_faddp(m, 1, 0x2C1, pc + 0x097);                                                   /* +097 faddp */
+        stf(OUT(0x18), f_fst_m(m, 1, 0x15B, pc + 0x099, ma + 0x18));                        /* +099 fstp dword ptr [ebx+18h],st */
+        f_fld_m(m, ldf(F(-0x8)), 0x144, pc + 0x09C, E - 0x8);                              /* +09C fld st,dword ptr [esp+34h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x0A0);                                                  /* +0A0 fld st,st(0) */
+        f_fmulp(m, 3, 0x2CB, pc + 0x0A2);                                                   /* +0A2 fmulp st(3),st */
+        f_fld_m(m, ldf(F(-0x10)), 0x144, pc + 0x0A4, E - 0x10);                            /* +0A4 fld st,dword ptr [esp+2Ch] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x0A8);                                                  /* +0A8 fld st,st(0) */
+        f_fmul_st0(m, 3, 0x0CB, pc + 0x0AA);                                                /* +0AA fmul st,st(3) */
+        f_faddp(m, 4, 0x2C4, pc + 0x0AC);                                                   /* +0AC faddp st(4),st */
+        f_fxch(m, 3, 0x1CB, pc + 0x0AE);                                                    /* +0AE fxch st,st(3) */
+        stf(OUT(0x20), f_fst_m(m, 1, 0x15B, pc + 0x0B0, ma + 0x20));                        /* +0B0 fstp dword ptr [ebx+20h],st */
+        f_fmulp(m, 1, 0x2C9, pc + 0x0B3);                                                   /* +0B3 fmulp */
+        f_fxch(m, 1, 0x1C9, pc + 0x0B5);                                                    /* +0B5 fxch */
+        f_fmulp(m, 2, 0x2CA, pc + 0x0B7);                                                   /* +0B7 fmulp st(2),st */
+        f_faddp(m, 1, 0x2C1, pc + 0x0B9);                                                   /* +0B9 faddp */
+        stf(OUT(0x28), f_fst_m(m, 1, 0x15B, pc + 0x0BB, ma + 0x28));                        /* +0BB fstp dword ptr [ebx+28h],st */
+        break;
+    default:
+        stf(F(-0x38), f_fst_m(m, 1, 0x15C, pc + 0x039, E - 0x38));                         /* +039 fstp dword ptr [esp+0Ch],st */
+        f_fld_m(m, ldf(F(-0x30)), 0x144, pc + 0x03E, E - 0x30);                            /* +03E fld st,dword ptr [esp+10h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x043);                                                  /* +043 fld st,st(0) */
+        f_fld_m(m, ldf(F(-0x38)), 0x144, pc + 0x045, E - 0x38);                            /* +045 fld st,dword ptr [esp+4] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x049);                                                  /* +049 fld st,st(0) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x04B);                                                   /* +04B fmulp st(2),st */
+        f_fld_m(m, ldf(F(-0x2c)), 0x144, pc + 0x04D, E - 0x2c);                            /* +04D fld st,dword ptr [esp+10h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x051);                                                  /* +051 fld st,st(0) */
+        f_fld_m(m, ldf(F(-0x34)), 0x144, pc + 0x053, E - 0x34);                            /* +053 fld st,dword ptr [esp+8] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x057);                                                  /* +057 fld st,st(0) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x059);                                                   /* +059 fmulp st(2),st */
+        f_fxch(m, 4, 0x1CC, pc + 0x05B);                                                    /* +05B fxch st,st(4) */
+        f_faddp(m, 1, 0x2C1, pc + 0x05D);                                                   /* +05D faddp */
+        stf(OUT(0x0), f_fst_m(m, 1, 0x11B, pc + 0x05F, ma + 0x0));                          /* +05F fstp dword ptr [ebx],st */
+        f_fld_st(m, 2, 0x1C2, pc + 0x061);                                                  /* +061 fld st,st(2) */
+        f_fchs(m, 0x1E0, pc + 0x063);                                                       /* +063 fchs */
+        stf(F(-0x34), f_fst_m(m, 1, 0x15C, pc + 0x065, E - 0x34));                         /* +065 fstp dword ptr [esp+8],st */
+        f_fld_m(m, ldf(F(-0x34)), 0x144, pc + 0x069, E - 0x34);                            /* +069 fld st,dword ptr [esp+8] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x06D);                                                  /* +06D fld st,st(0) */
+        f_fmulp(m, 5, 0x2CD, pc + 0x06F);                                                   /* +06F fmulp st(5),st */
+        f_fld_st(m, 2, 0x1C2, pc + 0x071);                                                  /* +071 fld st,st(2) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x073);                                                   /* +073 fmulp st(2),st */
+        f_fxch(m, 4, 0x1CC, pc + 0x075);                                                    /* +075 fxch st,st(4) */
+        f_faddp(m, 1, 0x2C1, pc + 0x077);                                                   /* +077 faddp */
+        stf(OUT(0x4), f_fst_m(m, 1, 0x15B, pc + 0x079, ma + 0x4));                          /* +079 fstp dword ptr [ebx+4],st */
+        f_fld_m(m, ldf(F(-0x20)), 0x144, pc + 0x07C, E - 0x20);                            /* +07C fld st,dword ptr [esp+1Ch] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x080);                                                  /* +080 fld st,st(0) */
+        f_fmul_st0(m, 2, 0x0CA, pc + 0x082);                                                /* +082 fmul st,st(2) */
+        f_fld_m(m, ldf(F(-0x1c)), 0x144, pc + 0x084, E - 0x1c);                            /* +084 fld st,dword ptr [esp+20h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x088);                                                  /* +088 fld st,st(0) */
+        f_fmul_st0(m, 5, 0x0CD, pc + 0x08A);                                                /* +08A fmul st,st(5) */
+        f_faddp(m, 2, 0x2C2, pc + 0x08C);                                                   /* +08C faddp st(2),st */
+        f_fxch(m, 1, 0x1C9, pc + 0x08E);                                                    /* +08E fxch */
+        stf(OUT(0x10), f_fst_m(m, 1, 0x15B, pc + 0x090, ma + 0x10));                        /* +090 fstp dword ptr [ebx+10h],st */
+        f_fld_st(m, 4, 0x1C4, pc + 0x093);                                                  /* +093 fld st,st(4) */
+        f_fmulp(m, 2, 0x2CA, pc + 0x095);                                                   /* +095 fmulp st(2),st */
+        f_fmul_st0(m, 2, 0x0CA, pc + 0x097);                                                /* +097 fmul st,st(2) */
+        f_faddp(m, 1, 0x2C1, pc + 0x099);                                                   /* +099 faddp */
+        stf(OUT(0x14), f_fst_m(m, 1, 0x15B, pc + 0x09B, ma + 0x14));                        /* +09B fstp dword ptr [ebx+14h],st */
+        f_fld_m(m, ldf(F(-0x10)), 0x144, pc + 0x09E, E - 0x10);                            /* +09E fld st,dword ptr [esp+2Ch] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x0A2);                                                  /* +0A2 fld st,st(0) */
+        f_fmul_st0(m, 2, 0x0CA, pc + 0x0A4);                                                /* +0A4 fmul st,st(2) */
+        f_fld_m(m, ldf(F(-0xc)), 0x144, pc + 0x0A6, E - 0xc);                              /* +0A6 fld st,dword ptr [esp+30h] */
+        f_fld_st(m, 0, 0x1C0, pc + 0x0AA);                                                  /* +0AA fld st,st(0) */
+        f_fmulp(m, 5, 0x2CD, pc + 0x0AC);                                                   /* +0AC fmulp st(5),st */
+        f_fxch(m, 1, 0x1C9, pc + 0x0AE);                                                    /* +0AE fxch */
+        f_faddp(m, 4, 0x2C4, pc + 0x0B0);                                                   /* +0B0 faddp st(4),st */
+        f_fxch(m, 3, 0x1CB, pc + 0x0B2);                                                    /* +0B2 fxch st,st(3) */
+        stf(OUT(0x20), f_fst_m(m, 1, 0x15B, pc + 0x0B4, ma + 0x20));                        /* +0B4 fstp dword ptr [ebx+20h],st */
+        f_fmulp(m, 3, 0x2CB, pc + 0x0B7);                                                   /* +0B7 fmulp st(3),st */
+        f_fmulp(m, 1, 0x2C9, pc + 0x0B9);                                                   /* +0B9 fmulp */
+        f_faddp(m, 1, 0x2C1, pc + 0x0BB);                                                   /* +0BB faddp */
+        stf(OUT(0x24), f_fst_m(m, 1, 0x15B, pc + 0x0BD, ma + 0x24));                        /* +0BD fstp dword ptr [ebx+24h],st */
+        break;
+    }
+#undef F
+#undef OUT
+    slots st;
+    f_slots(m, s, &st);
+    NJ_SETTLE(sh);
+    NJ_SETTLE(ob);
+    NJ_SETTLE(&st);
+    if (nj_exc_raised()) return 1 + WHY_VALUE;
+    memcpy(g + F, sh, RT_LEN);
+    for (int k = 0; k < 6; k++) memcpy(g + ma + RT_OUTS[axis][k], ob + RT_OUTS[axis][k], 4);
+    /* FADDP cleared C0, C2, C3, FLD ST(0) IE, the last FSTP DE. */
+    f_store(m, &st, s, ld16(s + O_SWD), 0x15B, pc + RT_LAST_IP[axis], ma + RT_LAST_OUT[axis]);
+    s[O_C0] = s[O_C2] = s[O_C3] = 0;
+    s[O_DE] = 0;
+    s[O_IE] = 0;
+    fl_add_store(s, esp - 0x38, 0x38);                               /* add esp,38h         */
+    st32(s + O_EAX, pc_.eax);                                        /* njCos's             */
+    st32(s + O_ECX, pc_.ecx);
+    st32(s + O_EDX, pc_.edx);
+    st32(s + O_EIP, ld32(g + E));                                    /* ret                 */
+    st32(s + O_ESP, esp + 4);
+    sa2_ninja_paths[NJ_ROTX + axis][0]++;
+    return 0;
+}
+
+#define RT_WRAP(va, axis)                                                                       \
+    __attribute__((used, retain))                                                               \
+    void *__wrap_sub_##va(void *state, uint32_t pc, void *memory) {                             \
+        uint8_t *s = state;                                                                     \
+        const uint16_t cw = ld16(s + O_CWD);                                                    \
+        const int why = !nj_on(NJ_ROTX + axis) ? 1 + WHY_OFF                                    \
+                      : (cw & 0x0300u) || !nj_env_ok(cw) ? 1 + WHY_FPU : rt_native(s, pc, axis); \
+        nj_count(NJ_ROTX + axis, why);                                                          \
+        return why ? __real_sub_##va(state, pc, memory) : memory;                               \
+    }
+RT_WRAP(4274e0, RT_X)
+RT_WRAP(4275b0, RT_Y)
+RT_WRAP(427680, RT_Z)

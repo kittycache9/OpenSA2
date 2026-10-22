@@ -119,8 +119,10 @@ def exe_overlay_identity(table: Path) -> dict:
 # the list's tail (test_widescreen.py).
 #
 # sub_426cc0, sub_424ff0 and sub_426e40 are the main thread's Ninja njCalcPoint, njInvertMatrix
-# and njMultiMatrix (runtime/sa2_ninja_math.c): native bodies at PC24, bit for bit the double
-# mode's lifted ones, on the same terms (tools/s8/native_kernels/ninja_diff.py holds them to it).
+# and njMultiMatrix, and sub_42aab0, sub_42ac30, sub_427470, sub_4274e0, sub_4275b0 and sub_427680
+# its njSin, njCos, njTranslate_ and njRotateX_/Y_/Z_ (runtime/sa2_ninja_math.c): native bodies at
+# PC24, bit for bit the double mode's lifted ones, on the same terms
+# (tools/s8/native_kernels/ninja_diff.py holds them to it).
 #
 # sub_859ac8, sub_859648 and sub_829008 are the CRT's x87 tan, sin and cos bodies
 # (runtime/sa2_crt_x87.c): each wrap clears C2, which remill's FPTAN, FSIN and FCOS leave as the
@@ -149,6 +151,7 @@ def exe_overlay_identity(table: Path) -> dict:
 PRODUCTION_WRAPS = ["sub_427ee0", "sub_842500", "sub_843400", "sub_843460", "sub_8418b0",
                     "sub_43ce20", "sub_441ba0",
                     "sub_426cc0", "sub_424ff0", "sub_426e40",
+                    "sub_42aab0", "sub_42ac30", "sub_427470", "sub_4274e0", "sub_4275b0", "sub_427680",
                     "sub_859ac8", "sub_859648", "sub_829008", "sub_405310",
                     "sub_44e9c0", "sub_7945c0", "sub_794cb0", "sub_44d360", "sub_61bba0",
                     "sub_61b6c0", "sub_4526d0", "sub_6f41b0", "sub_420210", "sub_420390",

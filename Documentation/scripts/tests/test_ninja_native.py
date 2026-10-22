@@ -4,7 +4,9 @@ lifted bodies.
 tools/s8/native_kernels/ninja_diff.py builds the differential harness
 (tools/s8/native_kernels/ninja_diff.c): the runtime file as tools/s4/link_s4.py compiles it, the
 double-mode lifted objects of 0x00426CC0 (njCalcPoint), 0x00424FF0 (njInvertMatrix, with
-0x00425350, which it calls) and 0x00426E40 (njMultiMatrix) as `__real_`, wrapped as the
+0x00425350, which it calls), 0x00426E40 (njMultiMatrix), 0x0042AAB0 (njSin), 0x0042AC30
+(njCos), 0x00427470 (njTranslate_) and 0x004274E0/0x004275B0/0x00427680 (njRotateX_/Y_/Z_) as
+`__real_`, wrapped as the
 production link wraps them, and the double mode's shims compiled from tools/s8/f80_shims_double.c
 (which includes tools/s7/f80_shims.c). Each kernel runs a million ordinary cases (realistic
 values, edge cases mixed in, wild finite bit patterns, edges inside the range the bodies take
@@ -37,12 +39,15 @@ import ninja_diff as D  # noqa: E402
 
 CASES = 1_000_000
 SEED = "20261012"
-KERNELS = ("calcpoint", "invert", "multiply")
+KERNELS = ("calcpoint", "invert", "multiply", "sin", "cos", "translate", "rotx", "roty", "rotz")
 COMMON_GUARDS = ("nonfinite_input", "overlap", "outside_guest_space", "memory_off_fast_path",
                  "switched_off", "precision_not_24", "host_mode_not_rc")
 GUARDS = {"calcpoint": COMMON_GUARDS,
           "invert": COMMON_GUARDS + ("segment_bases_differ", "direction_flag"),
-          "multiply": COMMON_GUARDS + ("segment_bases_differ",)}
+          "multiply": COMMON_GUARDS + ("segment_bases_differ",),
+          "sin": COMMON_GUARDS, "cos": COMMON_GUARDS,
+          "translate": tuple(g for g in COMMON_GUARDS if g != "overlap"),
+          **{f"rot{a}": COMMON_GUARDS + ("segment_bases_differ", "direction_flag") for a in "xyz"}}
 # The pass and shims inputs whose change is a change to what the bodies must equal.
 DOUBLE_MODE_INPUTS = ("tools/s8/f80_double.py", "tools/s8/f80_shims_double.c",
                       "tools/s7/f80_shims.c", "tools/s7/f80_legalize.py")
@@ -61,15 +66,16 @@ def nomarker():
 def test_link_s4_compiles_and_wraps_the_kernels():
     assert "sa2_ninja_math.c" in D.L4.RUNTIME_C
     assert D.L4.PRODUCTION_WRAPS[0] == "sub_427ee0"
-    assert [w for w in D.L4.PRODUCTION_WRAPS if w in D.WRAPS] == ["sub_426cc0", "sub_424ff0",
-                                                                  "sub_426e40"]
+    assert [w for w in D.L4.PRODUCTION_WRAPS if w in D.WRAPS] == [
+        "sub_426cc0", "sub_424ff0", "sub_426e40", "sub_42aab0", "sub_42ac30", "sub_427470",
+        "sub_4274e0", "sub_4275b0", "sub_427680"]
 
 
 def test_state_offsets_are_remills(double):
     r = D.run_harness(double, "layout")
     assert r["state_bytes"] == 3504
     assert r["ok"], {k: v for k, v in r["fields"].items() if v[0] != v[1]}
-    assert len(r["fields"]) == 39
+    assert len(r["fields"]) == 40
 
 
 @pytest.mark.parametrize("kernel", KERNELS)
@@ -117,7 +123,9 @@ def stale_copy(tmp_path: Path, edit) -> Path:
 def test_the_lifted_build_is_held_to_this_checkout(tmp_path):
     objs, unchecked = D.lifted_objects(D.LIFTED)
     assert {o.name for o in objs} == {"ir_00426CC0.o", "ir_00424FF0.o", "ir_00426E40.o",
-                                      "ir_00425350.o"}
+                                      "ir_00425350.o", "ir_0042AAB0.o", "ir_0042AC30.o",
+                                      "ir_00427470.o", "ir_004274E0.o", "ir_004275B0.o",
+                                      "ir_00427680.o"}
     named = {"tools/s8/f80_double.py", "tools/s8/f80_shims_double.c"}
     assert all(any(p in u for p in DOUBLE_MODE_INPUTS) for u in unchecked)
     assert not any(p in u for u in unchecked for p in named)

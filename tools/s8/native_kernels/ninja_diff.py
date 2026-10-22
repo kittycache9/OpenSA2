@@ -4,13 +4,14 @@
 Subtitle: compiles tools/s8/native_kernels/ninja_diff.c with the pinned zig and
 runtime/sa2_ninja_math.c with tools/s4/link_s4.py's own runtime command, links them with the
 double-mode lifted objects of njCalcPoint (0x00426CC0), njInvertMatrix (0x00424FF0, and
-0x00425350, which it calls) and njMultiMatrix (0x00426E40) as `__real_`, wrapped as the
+0x00425350, which it calls), njMultiMatrix (0x00426E40), njSin, njCos, njTranslate_ and
+njRotateX_/Y_/Z_ (KERNELS) as `__real_`, wrapped as the
 production link wraps them, and runs each kernel on CASES random and edge-case States and guest
 memories plus every guard's cases; prints the harness's JSON.
 
     source tools/env.sh; export SDL_AUDIO_DRIVER=dummy
     .venv/bin/python tools/s8/native_kernels/ninja_diff.py [--cases 1000000] [--seed 1]
-        [--kernels calcpoint,invert,multiply] [--variant double|nomarker]
+        [--kernels calcpoint,invert,multiply,sin,cos,translate,rotx,roty,rotz] [--variant double|nomarker]
         [--arch x86_64|aarch64|x86_64-windows] [--json OUT]
     .venv/bin/python tools/s8/native_kernels/ninja_diff.py bench [--arch ...] [--calls 2000000]
     .venv/bin/python tools/s8/native_kernels/ninja_diff.py ab-build --kernels on|off --name NAME
@@ -81,7 +82,9 @@ PASS = ROOT / "tools" / "s8" / "f80_double.py"
 SHIMS_SRC = ROOT / "tools" / "s8" / "f80_shims_double.c"
 RUNTIME_FILE = "sa2_ninja_math.c"
 # The kernels' guest functions: the harness's `__real_` objects and the -wrap the link passes.
-KERNELS = {"calcpoint": 0x00426CC0, "invert": 0x00424FF0, "multiply": 0x00426E40}
+KERNELS = {"calcpoint": 0x00426CC0, "invert": 0x00424FF0, "multiply": 0x00426E40,
+           "sin": 0x0042AAB0, "cos": 0x0042AC30, "translate": 0x00427470,
+           "rotx": 0x004274E0, "roty": 0x004275B0, "rotz": 0x00427680}
 # What the lifted kernels call besides the runtime: njInvertMatrix's scale.
 CALLEES = (0x00425350,)
 WRAPS = tuple(f"sub_{va:x}" for va in KERNELS.values())
@@ -105,7 +108,7 @@ extern "C" int sa2_ninja_remill_offset(const char *field) {
         F("addr.ss_base", addr.ss_base), F("addr.es_base", addr.es_base),
         F("addr.ds_base", addr.ds_base), F("gpr.rax", gpr.rax), F("gpr.rbx", gpr.rbx),
         F("gpr.rcx", gpr.rcx), F("gpr.rdx", gpr.rdx), F("gpr.rsi", gpr.rsi), F("gpr.rdi", gpr.rdi),
-        F("gpr.rsp", gpr.rsp), F("gpr.rip", gpr.rip),
+        F("gpr.rsp", gpr.rsp), F("gpr.rbp", gpr.rbp), F("gpr.rip", gpr.rip),
         F("st.elems[0].val", st.elems[0].val), F("st.elems[1].val", st.elems[1].val),
         F("sw.c0", sw.c0), F("sw.c1", sw.c1), F("sw.c2", sw.c2), F("sw.c3", sw.c3),
         F("sw.pe", sw.pe), F("sw.ue", sw.ue), F("sw.oe", sw.oe), F("sw.ze", sw.ze),
