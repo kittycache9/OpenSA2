@@ -28,13 +28,17 @@ The Windows build is unsigned. Windows may ask you to confirm that you want to r
 4. Download the APK on your device and install it. Android may require permission for your browser or file manager to install apps.
 5. Open OpenSA2, tap **Choose game ZIP**, and select your ZIP.
 
-The app copies the ZIP, then shows "Checking the game ZIP" while it verifies and imports the files into its own storage. This can take a few minutes, and the screen can look stuck. Keep the app open until the game starts. You can then delete the ZIP. If a file fails the check, the setup screen names it.
+The app copies the ZIP, then shows "Checking the game ZIP" while it verifies and imports the files into its own storage. This can take a few minutes, and the screen can look stuck. Keep the app open until it says "Tap Play". You can then delete the ZIP. If a file fails the check, the setup screen names it.
 
 The app supports touch controls and external controllers. The touch controls appear when you touch the screen.
+
+The app no longer starts the game by itself. It opens to its own screen, and you tap **Play**. To start faster, press and hold the app icon on your home screen and tap **Play**, or turn on **Start the game when the app opens** in **Game settings**, which also starts the game when an install finishes.
 
 ### Game settings on Android
 
 Tap **Game settings** on the setup screen. Changes apply the next time the game starts. App updates keep your settings.
+
+In the **Tweaks** card, the **Chao** group has a **Turn on the Chao boosts** button. It turns on **Chao stats x5** and **Rings over time in Chao World** together. Both write to your save and stay there when you turn them off, so the button offers to back up your saves first. **Chao Key always held** is not part of it, because it can mark the Chao Key as found in your save.
 
 - **Orientation** is Landscape by default. **Portrait** lets you hold the phone upright: the game is drawn at 4:3 across the screen, in the middle of its upper half, and the touch controls sit in the space below the picture. **Picture position** moves the picture anywhere from the top of the screen to its middle. **Auto-rotate** follows the phone when its own auto-rotate is on. The game is then drawn at 4:3 so that it fits either way.
 - **Full-width picture** draws the game at the screen's shape. Turn it off to keep the game's own 16:9 picture, with bars at the sides of a wider screen.
@@ -48,7 +52,7 @@ Tap **Game settings** on the setup screen. Changes apply the next time the game 
 
 **Reset all settings** restores the defaults. It does not change your saves.
 
-The **Saves** card in **Game settings** manages the game's saves. **Import saves** takes save files, such as `SONIC2B__S01` for the story or `SONIC2B__ALF` for Chao World, or a ZIP of them. Given a Debug Export, it asks whether to import the saves from the start or the end of that session. It replaces only the saves it brings, and it keeps a backup of your current saves first. The app keeps the last 10 backups. **Export saves** writes the saves the game uses to a ZIP in a place you choose. **Restore a backup** puts the saves back to one of the backups. The app refuses a file whose name or size is not a save's. It does not check a Chao World save's checksum, so import only saves you trust. The game reads the new saves the next time it starts.
+The **Saves** card in **Game settings** manages the game's saves. **Back up saves now** copies your current saves to a backup, unless the newest backup already holds exactly them. **Import saves** takes save files, such as `SONIC2B__S01` for the story or `SONIC2B__ALF` for Chao World, or a ZIP of them. Given a Debug Export, it asks whether to import the saves from the start or the end of that session. It replaces only the saves it brings, and it keeps a backup of your current saves first. The app keeps the last 10 backups. **Export saves** writes the saves the game uses to a ZIP in a place you choose. **Restore a backup** puts the saves back to one of the backups. The app refuses a file whose name or size is not a save's. It does not check a Chao World save's checksum, so import only saves you trust. The game reads the new saves the next time it starts.
 
 The **Debug** section at the end of **Game settings** has **Record sessions** and **Debug Export**. **Record sessions** is off by default; turned on, each session also keeps what a replay needs (see below). **Export the latest session** makes one ZIP of the last time you played and opens the share sheet, so you can attach it to a bug report or send it to your computer. **Export another session** picks one of the earlier sessions the app keeps. See [Export a session for a bug report](#export-a-session-for-a-bug-report) for what the ZIP holds.
 

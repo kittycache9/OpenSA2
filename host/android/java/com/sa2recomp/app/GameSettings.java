@@ -282,8 +282,12 @@ final class GameSettings {
         return out;
     }
 
+    /** What the Chao boosts button turns on (Sa2SettingsActivity.chaoBoosts); both write to the save. */
+    static final String[] CHAO_BOOSTS = {"chao-stat-x5", "garden-ring-trickle"};
+
     String orientation = LANDSCAPE;
     boolean widescreen = true, hud43 = true;
+    boolean autoPlay = false;         // start the game when the app opens or an install finishes: off, the screen stays up
     boolean recordSessions = false;   // the session recorder (Debug card): off, as without it
     int resolution = 0;                  // lines, 0 the screen's
     String aspect = "auto";
@@ -300,6 +304,7 @@ final class GameSettings {
         s.orientation = p.getString("orientation", s.orientation);
         s.widescreen = p.getBoolean("widescreen", s.widescreen);
         s.hud43 = p.getBoolean("hud43", s.hud43);
+        s.autoPlay = p.getBoolean("auto_play", s.autoPlay);
         s.recordSessions = p.getBoolean("record_sessions", s.recordSessions);
         s.resolution = p.getInt("resolution", s.resolution);
         s.aspect = p.getString("aspect", s.aspect);
@@ -322,6 +327,7 @@ final class GameSettings {
                 .putString("orientation", orientation)
                 .putBoolean("widescreen", widescreen)
                 .putBoolean("hud43", hud43)
+                .putBoolean("auto_play", autoPlay)
                 .putBoolean("record_sessions", recordSessions)
                 .putInt("resolution", resolution)
                 .putString("aspect", aspect)

@@ -77,7 +77,9 @@ import java.util.Map;
  * XDG_CONFIG_HOME = files/config, XDG_DATA_HOME = files/data), so both read the same config.
  *
  * Intent extras: sa2.stream (and Sa2Activity's other extras) start the play screen's stream mode
- * at once, the renderer's check with no game; sa2.no_autoplay keeps this screen up.
+ * at once, the renderer's check with no game; sa2.no_autoplay keeps this screen up. The game starts
+ * by itself when the app opens, or when an install finishes, only with Game settings > "Start the game
+ * when the app opens" on (off by default); sa2.play, from the Play shortcut, starts it at once.
  *
  * The app's files folder is private on a release build, so this screen copies each kept
  * session's logs and records, and last-session.txt, into the external files folder's sessions/
@@ -86,6 +88,7 @@ import java.util.Map;
 public class Sa2SetupActivity extends Activity {
     private static final String TAG = "sa2recomp";
     public static final String EXTRA_NO_AUTOPLAY = "sa2.no_autoplay";
+    public static final String EXTRA_PLAY = "sa2.play";
     private static final String GAME_EXE = "sonic2app.exe";
     private static final int PICK_ZIP = 1;
     private static final String PROJECT = "https://github.com/kittycache9/OpenSA2";
@@ -132,6 +135,10 @@ public class Sa2SetupActivity extends Activity {
     private void takeIntent(Intent it) {
         if (it == null) return;
         if (it.getBooleanExtra(EXTRA_NO_AUTOPLAY, false)) mAutoPlayDone = true;
+        if (it.getBooleanExtra(EXTRA_PLAY, false) && configFile().isFile() && !mBusy) {
+            mAutoPlayDone = true;
+            verifyThenPlay();
+        }
         if (it.getStringExtra(Sa2Activity.EXTRA_STREAM) != null) {
             mAutoPlayDone = true;
             Intent play = new Intent(this, Sa2Activity.class);
@@ -304,7 +311,7 @@ public class Sa2SetupActivity extends Activity {
                 setLog("The last session:\n" + last);
             } else if (!mAutoPlayDone) {
                 mAutoPlayDone = true;
-                verifyThenPlay();
+                if (GameSettings.load(this).autoPlay) verifyThenPlay();
             }
             return;
         }
@@ -497,10 +504,12 @@ public class Sa2SetupActivity extends Activity {
         runInstaller("Checking the game folder", new String[] {"--source", "folder", root.getAbsolutePath(), "--yes",
                      "--threads", "0", "--record", new File(logs, "install.runrec").getAbsolutePath()}, code -> {
             if (code == 0) {
-                addLine("The game folder verified." + (mHoldPlay ? "" : " Starting the game."));
+                final boolean start = GameSettings.load(this).autoPlay;
+                addLine("The game folder verified." + (start && !mHoldPlay ? " Starting the game." : " Tap Play."));
                 mAutoPlayDone = true;
                 refresh();
-                playUnlessHeld();
+                if (start) playUnlessHeld();
+                else mHoldPlay = false;
             } else {
                 mHoldPlay = false;
                 mInstallVerdict = InstallVerdict.explain(mInstallOut, code, false);
@@ -605,10 +614,12 @@ public class Sa2SetupActivity extends Activity {
                              "--threads", "0", "--record", new File(logs, "install.runrec").getAbsolutePath()}, code -> {
                     copy.delete();
                     if (code == 0) {
-                        addLine("The game ZIP verified." + (mHoldPlay ? "" : " Starting the game."));
+                        final boolean start = GameSettings.load(this).autoPlay;
+                        addLine("The game ZIP verified." + (start && !mHoldPlay ? " Starting the game." : " Tap Play."));
                         mAutoPlayDone = true;
                         refresh();
-                        playUnlessHeld();
+                        if (start) playUnlessHeld();
+                        else mHoldPlay = false;
                     } else {
                         mHoldPlay = false;
                         mInstallVerdict = InstallVerdict.explain(mInstallOut, code, true);

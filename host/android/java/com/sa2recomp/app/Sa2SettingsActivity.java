@@ -26,6 +26,7 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -53,7 +54,7 @@ public class Sa2SettingsActivity extends Activity {
     private GameSettings mS;
     private int mLong, mShort;
     private Button[] mOrientation, mAspect;
-    private Switch mWidescreen, mHud, mRecord;
+    private Switch mWidescreen, mHud, mRecord, mAutoPlay;
     private final Map<String, Switch> mTweaks = new HashMap<>();   // each GameSettings.TWEAKS name's switch
     private Button mTweaksOff;                 // every tweak off at once (GameSettings.tweaksOff)
     private Button mResolution, mLayoutLandscape, mLayoutPortrait;
@@ -225,6 +226,16 @@ public class Sa2SettingsActivity extends Activity {
         col.addView(text("Game settings", 24, Color.WHITE, true));
         col.addView(text("Changes apply the next time the game starts.", 14, NOTE, false), Ui.full(dp(6)));
 
+        // Starting
+        LinearLayout st = card(col, "Starting the game");
+        mAutoPlay = toggle(st, "Start the game when the app opens", (b, on) -> {
+            mS.autoPlay = on;
+            save();
+        });
+        note(st, "Off: the app opens to its own screen and you tap Play (or use the Play shortcut on the home "
+                + "screen: press and hold the app icon). On: the game starts at once when the app opens, "
+                + "and when an install finishes.");
+
         // Display
         LinearLayout d = card(col, "Display");
         label(d, "Orientation", true);
@@ -331,6 +342,7 @@ public class Sa2SettingsActivity extends Activity {
                 mTweaks.put(tweak.name, w);
                 note(tw, tweak.description);
             }
+            if ("Chao".equals(group.heading)) action(tw, "Turn on the Chao boosts", v -> chaoBoosts());
         }
         // Vanilla: every tweak off at once (the desktop's is vanilla-profile, runtime/sa2_tweaks.h).
         mTweaksOff = action(tw, "Turn every tweak off", v -> new AlertDialog.Builder(this)
@@ -346,6 +358,7 @@ public class Sa2SettingsActivity extends Activity {
         LinearLayout sv = card(col, "Saves");
         action(sv, "Import saves", v -> pickSaves());
         action(sv, "Export saves", v -> pickExport());
+        action(sv, "Back up saves now", v -> backupNow());
         action(sv, "Restore a backup", v -> pickBackup());
         note(sv, "Import takes save files (SONIC2B__S01 and the like for the story, SONIC2B__ALF for Chao World) "
                 + "or a ZIP of them, or a Debug Export's saves. It replaces only the saves it brings, and backs up the current ones first (the "
@@ -439,6 +452,7 @@ public class Sa2SettingsActivity extends Activity {
         mResolution.setText(resolutionName(shownResolution()));
         mResolution.setEnabled(fixed || wide);
         mHud.setChecked(mS.hud43);
+        mAutoPlay.setChecked(mS.autoPlay);
         if (mRecord != null) mRecord.setChecked(mS.recordSessions);
         for (Map.Entry<String, Switch> e : mTweaks.entrySet()) e.getValue().setChecked(mS.tweaksOn.contains(e.getKey()));
         mTweaksOff.setEnabled(!mS.tweaksOn.isEmpty());
@@ -623,6 +637,49 @@ public class Sa2SettingsActivity extends Activity {
         List<String> n = new ArrayList<>();
         for (SaveTools.Found f : fs) n.add(f.name);
         return String.join(", ", n);
+    }
+
+    private void backupNow() {
+        new Thread(() -> {
+            String msg;
+            try {
+                msg = SaveTools.backupNow(this);
+            } catch (Exception e) {
+                msg = "Backup failed: " + e.getMessage();
+            }
+            final String m = msg;
+            runOnUiThread(() -> Toast.makeText(this, m, Toast.LENGTH_LONG).show());
+        }, "save-backup").start();
+    }
+
+    /** The Chao boosts: GameSettings.CHAO_BOOSTS together. Both write to the save and stay in it when
+     * switched off again, so the first question offers the backup the Saves card makes. */
+    private void chaoBoosts() {
+        new AlertDialog.Builder(this).setTitle("Turn on the Chao boosts?")
+                .setMessage("This turns on \"Chao stats x5\" and \"Rings over time in Chao World\". The stat "
+                        + "points and rings they add are written to your save and stay when you turn the boosts "
+                        + "off. You can back up your saves first, then restore that backup to undo it.")
+                .setPositiveButton("Back up, then turn on", (dlg, w) -> new Thread(() -> {
+                    String msg;
+                    try {
+                        msg = SaveTools.backupNow(this);
+                    } catch (Exception e) {
+                        msg = "No backup was made (" + e.getMessage() + ")";
+                    }
+                    final String m = msg;
+                    runOnUiThread(() -> {
+                        Toast.makeText(this, m, Toast.LENGTH_LONG).show();
+                        applyChaoBoosts();
+                    });
+                }, "save-backup").start())
+                .setNeutralButton("Turn on", (dlg, w) -> applyChaoBoosts())
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void applyChaoBoosts() {
+        mS.tweaksOn.addAll(Arrays.asList(GameSettings.CHAO_BOOSTS));
+        save();
     }
 
     private void doImport(List<SaveTools.Found> saves) {

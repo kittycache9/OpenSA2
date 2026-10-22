@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SA2 Recompiled</string>
+    <string name="shortcut_play">Play</string>
+    <string name="shortcut_play_long">Play Sonic Adventure 2</string>
 </resources>

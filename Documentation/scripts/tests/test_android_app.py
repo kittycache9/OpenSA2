@@ -333,3 +333,37 @@ def test_the_settings_screen_offers_the_four_choices_in_order():
     # The session takes SA2_ADPF_TARGET_US as it is (1000 to 1000000 us), no native change.
     native = (ROOT / "host/android/native/sa2_android_session.cpp").read_text()
     assert 'env_find(genv, "SA2_ADPF_TARGET_US")' in native and "us >= 1000 && us <= 1000000" in native
+
+
+def test_the_game_starts_by_itself_only_when_the_player_turned_that_on():
+    """Auto launch is off by default and is a stored setting, never a session setting: opening the
+    app, and an install finishing, start the game only with GameSettings.autoPlay on."""
+    app = ROOT / "host/android/java/com/sa2recomp/app"
+    settings = (app / "GameSettings.java").read_text()
+    setup = (app / "Sa2SetupActivity.java").read_text()
+    assert "boolean autoPlay = false;" in settings
+    assert 's.autoPlay = p.getBoolean("auto_play", s.autoPlay);' in settings
+    assert "autoPlay" not in settings.split("List<String> sessionSettings(", 1)[1]
+    assert "if (GameSettings.load(this).autoPlay) verifyThenPlay();" in setup
+    assert setup.count("final boolean start = GameSettings.load(this).autoPlay;") == 2
+    assert setup.count("if (start) playUnlessHeld();") == 2
+    assert "Start the game when the app opens" in (app / "Sa2SettingsActivity.java").read_text()
+
+
+def test_the_play_shortcut_goes_through_the_check_and_the_chao_boosts_are_tweaks():
+    """The home-screen Play shortcut is a static shortcut to the setup screen with sa2.play, which
+    runs the installation check before the game; the Chao boosts button names two real tweaks."""
+    manifest = (ROOT / "host/android/AndroidManifest.xml").read_text()
+    shortcuts = (ROOT / "host/android/res/xml/shortcuts.xml").read_text()
+    app = ROOT / "host/android/java/com/sa2recomp/app"
+    assert 'android:name="android.app.shortcuts" android:resource="@xml/shortcuts"' in manifest
+    assert 'android:targetClass="com.sa2recomp.app.Sa2SetupActivity"' in shortcuts
+    assert '<extra android:name="sa2.play" android:value="true" />' in shortcuts
+    setup = (app / "Sa2SetupActivity.java").read_text()
+    assert 'EXTRA_PLAY = "sa2.play"' in setup
+    assert "if (it.getBooleanExtra(EXTRA_PLAY, false) && configFile().isFile() && !mBusy) {" in setup
+    settings = (app / "GameSettings.java").read_text()
+    boosts = re.search(r"CHAO_BOOSTS = \{(.*?)\};", settings).group(1)
+    names = set(re.findall(r'"([^"]+)"', boosts))
+    assert names == {"chao-stat-x5", "garden-ring-trickle"}
+    assert all(f'new Tweak("{n}"' in settings for n in names)

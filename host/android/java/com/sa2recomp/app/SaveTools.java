@@ -164,6 +164,33 @@ final class SaveTools {
         return "Imported " + String.join(", ", names) + ". The old saves are in backup " + backup.getName() + ".";
     }
 
+    /** Backs up the overlay's saves when asked to, unless the newest backup already holds exactly
+     *  them (repeated taps must not push the older backups out of the last KEEP). */
+    static String backupNow(Context c) throws Exception {
+        File dir = overlaySaves(c);
+        if (dir == null) throw new Exception("The game is not installed yet: install it first.");
+        Map<String, byte[]> now = savesIn(dir);
+        if (now.isEmpty()) throw new Exception("There are no saves to back up yet: the game writes them when you save.");
+        List<File> all = backups(c);
+        if (!all.isEmpty()) {
+            Map<String, byte[]> last = savesIn(all.get(0));
+            boolean same = last.keySet().equals(now.keySet());
+            for (Map.Entry<String, byte[]> e : now.entrySet())
+                if (same && !Arrays.equals(e.getValue(), last.get(e.getKey()))) same = false;
+            if (same) return "These saves are already in backup " + all.get(0).getName() + ".";
+        }
+        return "Backed up " + now.size() + " saves in backup " + backup(c, dir).getName() + ".";
+    }
+
+    private static Map<String, byte[]> savesIn(File dir) throws Exception {
+        Map<String, byte[]> out = new TreeMap<>();
+        File[] fs = dir.listFiles(File::isFile);
+        if (fs != null) for (File f : fs)
+            if (isSaveName(f.getName()) && notASave(f.getName(), f.length()) == null)
+                out.put(f.getName(), readAll(new java.io.FileInputStream(f)));
+        return out;
+    }
+
     /** The backups, newest first. */
     static List<File> backups(Context c) {
         File[] fs = backupRoot(c).listFiles(File::isDirectory);
