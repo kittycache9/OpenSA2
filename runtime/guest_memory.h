@@ -426,7 +426,13 @@ extern uint64_t sa2_guest_head_reads;
  * or be made in state_local.py's `_fast_helper` too; otherwise every rewritten function
  * skips it. Documentation/scripts/tests/test_state_local.py runs both paths over this
  * runtime at the edges of the guest space, under each poison mode, and fails on any
- * difference (harness/guest_fast_probe.c). */
+ * difference (harness/guest_fast_probe.c).
+ *
+ * Hidden on ELF: the Android game is -fPIC, and a default-visibility global there is reached through
+ * the GOT, one more dependent load in every out-of-line intrinsic. */
+#if defined(__ELF__)
+__attribute__((visibility("hidden")))
+#endif
 extern uint8_t *sa2_guest_fast_base;
 
 /* Helpers the intrinsics, the call entry and the harness need. */

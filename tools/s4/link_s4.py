@@ -67,6 +67,10 @@ RUNTIME_C = ["guest_memory.c", "function_table_impl.c", "sa2_trap.c", "sa2_call.
              "sa2_crt_x87.c", "sa2_tweaks.c", "sa2_stall.c"]
 # The tweaks' own files, runtime/tweaks/*.c, join RUNTIME_C after PRODUCTION_WRAPS below.
 RUNTIME_CXX = ["remill_runtime.cpp", "sa2_emulate.cpp"]
+# zig compiles with -mframe-pointer=all, which gave each guest-memory intrinsic in
+# remill_runtime.cpp a push/mov/pop of rbp around a dozen instructions; nothing in the runtime
+# walks frame pointers (unwinding is by CFI), so the C++ runtime omits them.
+RUNTIME_CXX_FLAGS = ["-fomit-frame-pointer"]
 # The shipped executable's code-section overlay (runtime/sa2_exe_overlay.h): the table
 # tools/s7/text_readset.py writes, never tracked, since it holds code bytes of the game. A build
 # links it only when it asks to (`--exe-overlay`), and then compiles it after the runtime and
@@ -177,7 +181,8 @@ def phase_compile(state: dict, name: str, tag: str, main: Path, rebuild: bool,
         jobs.append((src, RUNTIME / src, cflags))
     for src in RUNTIME_CXX:
         jobs.append((src, RUNTIME / src, [zig, "c++"] + TARGET +
-                     [OPT, "-w", "-std=c++17", "-c", "-I", str(RUNTIME), "-I", str(C.REMILL_INC)]))
+                     [OPT, "-w", "-std=c++17", *RUNTIME_CXX_FLAGS, "-c", "-I", str(RUNTIME),
+                      "-I", str(C.REMILL_INC)]))
     jobs.append(("function_table_whole.c", table_c, cflags))
     ident = exe_overlay_identity(overlay) if overlay is not None else None
     if ident is not None:

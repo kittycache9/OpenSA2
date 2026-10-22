@@ -187,7 +187,7 @@ def runner_links(runner: str) -> tuple[list[str], list[str]]:
 def flags(cxx: bool, src_root: Path) -> list[str]:
     """link_s4's compile command for one source, with the Windows triple and WIN_FLAGS."""
     head = [str(S.ZIG), "c++" if cxx else "cc"] + TARGET + WIN_FLAGS + [LS.OPT, "-w"]
-    return head + (["-std=c++17"] if cxx else []) + [
+    return head + (["-std=c++17", *LS.RUNTIME_CXX_FLAGS] if cxx else []) + [
         "-c", "-I", str(src_root / "runtime"), "-I", str(C.REMILL_INC)]
 
 
