@@ -198,6 +198,7 @@
     X(SA2_TWEAK_METAL_BOUNCE_FIX, "metal-bounce-fix", "metal-bounce fixed", "Metal Sonic's bounce attack uses his own model, so it no longer crashes with an all-upgrades cheat") \
     X(SA2_TWEAK_MODEL_TINT_FIX, "model-tint-fix", "model tint fixed", "rockets, propeller springs, fire skulls and a few other stage objects drawn at full brightness, without the grey tint the PC version gives them") \
     X(SA2_TWEAK_MODLOADER_DEFAULT_FIXES, "modloader-default-fixes", "mod loader fixes", "two of the SA2 Mod Loader's default fixes: the white fade on the victory screen ends instead of flickering faintly, and Chao World models set their environment map's matrix before they are drawn") \
+    X(SA2_TWEAK_MUSIC_VOLUME, "music-volume", "music volume", "the stage, menu and cutscene music plays quieter, at 60 percent by default (SA2_MUSIC_VOLUME=0 to 100 sets it); sound effects, voices and the short music cues keep their level") \
     X(SA2_TWEAK_NO_2P_SPECIALS, "no-2p-specials", "no 2P specials", "no special attacks in 2-player battles, from rings or after losing a life") \
     X(SA2_TWEAK_NO_EVENT_BARS, "no-event-bars", "event-bars off", "no black bars at the sides of in-engine cutscenes on a wide screen; movies keep theirs") \
     X(SA2_TWEAK_NO_LIVES_BONUS, "no-lives-bonus", "ring 1-ups off", "no extra life for every 100 rings; 1-up boxes still give one") \
