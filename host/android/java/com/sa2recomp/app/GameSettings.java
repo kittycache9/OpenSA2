@@ -121,7 +121,6 @@ final class GameSettings {
         new Tweak("model-tint-fix", "Fix grey model tint", "Rockets, propeller springs, fire skulls and a few other stage objects are drawn at full brightness, without the grey tint the PC version gives them (the model tint fix from SA2 Render Fix). Only how they look changes, and nothing is saved."),
         new Tweak("modloader-default-fixes", "Mod Loader default fixes", "Two fixes the SA2 Mod Loader turns on by default. The white fade on the victory screen after a stage clears fully instead of flickering faintly during the pose, and shiny parts of Chao World models reflect their own view instead of the one left by the model drawn before. Nothing is saved."),
         new Tweak("mono-audio", "Mono audio", "Plays the left and right channels mixed together from both speakers, for one earbud or one ear."),
-        new Tweak("music-volume", "Quieter music", "Plays the stage, menu and cutscene music at 60 percent of the game's level, because the PC version mixes its music loud. Sound effects, voices and the short music cues (1-up, speed-up, goal ring, bosses) keep their level."),
         new Tweak("no-2p-specials", "No special attacks in 2P", "In 2-player battles, neither player gets special attacks, not from collecting rings and not after losing a life."),
         new Tweak("no-event-bars", "Remove cutscene black bars", "Removes the black bars at the sides of in-engine cutscenes on a wide picture. The scenes are not changed, so the opening and three other cutscenes made for 4:3 may show an effect or picture that stops short of the screen's sides, with black beyond it. Movies keep their bars, because the video is 4:3."),
         new Tweak("no-lives-bonus", "No extra life at 100 rings", "Collecting 100 rings (or 200, 300...) no longer gives an extra life. 1-up boxes still do."),
@@ -152,6 +151,7 @@ final class GameSettings {
         new Tweak("sync-load", "Faster loading", "Reads the files a load needs at once instead of drawing a loading-screen frame for each, so the game starts and stages load sooner, by about half a second to a second each on a fast device. The Now Loading animation stands still while the files load. Your save is not changed."),
         new Tweak("tex-filter", "Sharper textures", "Sharpens textures that have mipmaps, most of the 3D world, so floors and walls stay sharp into the distance: 16x anisotropic filtering where the GPU supports it, and a slight mip bias. Most of the HUD and menus look the same. A small GPU cost."),
         new Tweak("victory-powerups", "Keep powerups on the victory screen", "A barrier or invincibility stays on your character during the victory pose at the end of a stage, instead of vanishing."),
+        new Tweak("volume-levels", "Volume levels", "Plays the music, the voices and the sound effects at the levels the Sound card's sliders set, from 0 to 100% of the game's own. Moving a slider turns this on; off, the game plays at its own levels. Short music cues (1-up, speed-up, goal ring, bosses) keep their level."),
         new Tweak("vsync", "Vsync", "Each frame waits for the screen's refresh (FIFO) instead of mailbox presentation. Android does not tear either way, so on a phone this only adds up to a frame of delay. Leave it off unless you are testing it."),
         new Tweak("walker-cannon-fix", "Fix the Chao Walker cannon crash", "Stops the crash when a Chao Walker has the cannon upgrade, which only a cheat can give it. Changes nothing else."),
     };
@@ -219,7 +219,7 @@ final class GameSettings {
         },
         {"Audio",
             "no-music",
-            "music-volume",
+            "volume-levels",
             "no-voices",
             "no-powerup-music",
             "mono-audio",
@@ -297,6 +297,7 @@ final class GameSettings {
 
     /** What the setup screen's Chao World button turns on for its one launch (Sa2Activity.EXTRA_TWEAKS),
      * beside the stored tweaksOn, which it leaves as they are. */
+    static final String VOLUME_LEVELS = "volume-levels";   // the tweak the Sound card's sliders drive
     static final String[] CHAO_LAUNCH = {"skip-intro", "start-in-chao-world"};
 
     String orientation = LANDSCAPE;
@@ -307,6 +308,7 @@ final class GameSettings {
     String aspect = "auto";
     String frameskip = "off";            // FRAMESKIPS; any other stored value is off
     int touchSize = 100, touchOpacity = 100;   // percent of the overlay's own
+    int musicVolume = 100, voiceVolume = 100, sfxVolume = 100;   // percent of the game's level (volume-levels)
     int pictureY = 25;                         // upright, the picture's centre, percent of the height down (0 to 50)
     String layoutLandscape = "", layoutPortrait = "";  // SA2_TOUCH_LAYOUT, SA2_TOUCH_LAYOUT_PORTRAIT; "" its own
     String touchMap = "", padMap = "";         // SA2_TOUCH_MAP and SA2_PAD_MAP, only what differs
@@ -326,6 +328,9 @@ final class GameSettings {
         s.touchSize = p.getInt("touch_size", s.touchSize);
         s.touchOpacity = p.getInt("touch_opacity", s.touchOpacity);
         s.pictureY = p.getInt("picture_y", s.pictureY);
+        s.musicVolume = p.getInt("music_volume", s.musicVolume);
+        s.voiceVolume = p.getInt("voice_volume", s.voiceVolume);
+        s.sfxVolume = p.getInt("sfx_volume", s.sfxVolume);
         s.layoutLandscape = p.getString("touch_layout", s.layoutLandscape);
         s.layoutPortrait = p.getString("touch_layout_portrait", s.layoutPortrait);
         s.touchMap = p.getString("touch_map", s.touchMap);
@@ -349,6 +354,9 @@ final class GameSettings {
                 .putInt("touch_size", touchSize)
                 .putInt("touch_opacity", touchOpacity)
                 .putInt("picture_y", pictureY)
+                .putInt("music_volume", musicVolume)
+                .putInt("voice_volume", voiceVolume)
+                .putInt("sfx_volume", sfxVolume)
                 .putString("touch_layout", layoutLandscape)
                 .putString("touch_layout_portrait", layoutPortrait)
                 .putString("touch_map", touchMap)
@@ -498,6 +506,10 @@ final class GameSettings {
         if (!layoutPortrait.isEmpty()) e.add("SA2_TOUCH_LAYOUT_PORTRAIT=" + layoutPortrait);
         if (!touchMap.isEmpty()) e.add("SA2_TOUCH_MAP=" + touchMap);
         if (!padMap.isEmpty()) e.add("SA2_PAD_MAP=" + padMap);
+        // The Sound card's sliders, for volume-levels (runtime/tweaks/volume-levels.c), which they turn on.
+        if (tweaksOn.contains(VOLUME_LEVELS) || Arrays.asList(launchTweaks).contains(VOLUME_LEVELS))
+            e.addAll(Arrays.asList("SA2_MUSIC_VOLUME=" + musicVolume, "SA2_VOICE_VOLUME=" + voiceVolume,
+                                   "SA2_SFX_VOLUME=" + sfxVolume));
         String tweaks = tweaks(launchTweaks);
         if (!tweaks.isEmpty()) e.add("SA2_TWEAKS=" + tweaks);
         if (recordSessions) e.add("SA2_RECORD_SESSION=1");   // the native session's, not the game's

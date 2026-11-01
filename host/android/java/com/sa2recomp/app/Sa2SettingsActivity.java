@@ -60,7 +60,8 @@ public class Sa2SettingsActivity extends Activity {
     private Button mChaoBoosts, mBackupNow;
     private Button mResolution, mLayoutLandscape, mLayoutPortrait;
     private TextView mOrientationNote, mPictureNote, mSizeLabel, mOpacityLabel, mPlaceLabel, mPlaceNote;
-    private SeekBar mSize, mOpacity, mPlace;
+    private SeekBar mSize, mOpacity, mPlace, mMusic, mVoice, mSfx;
+    private TextView mMusicLabel, mVoiceLabel, mSfxLabel;
     private boolean mUpdating;
     private Button[] mFrameskip;
     private TextView mDebugNote;
@@ -186,6 +187,19 @@ public class Sa2SettingsActivity extends Activity {
         });
         c.addView(w, Ui.full(dp(16)));
         return w;
+    }
+
+    /** A Sound slider moved: the levels apply through volume-levels, so it goes on with them. */
+    private void volumeChanged() {
+        mS.tweaksOn.add(GameSettings.VOLUME_LEVELS);
+        save();
+    }
+
+    /** A Sound slider and its label at `percent` (0 to 100 in steps of 5). */
+    private static void volumeRow(SeekBar b, TextView label, String name, int percent) {
+        label.setText(String.format(Locale.US, "%s: %d%%", name, percent));
+        b.setProgress(percent / 5);
+        describe(b, label, percent + "%");
     }
 
     /** A slider from lo to hi percent in steps of `step`, named by `label`. */
@@ -316,6 +330,30 @@ public class Sa2SettingsActivity extends Activity {
         mLayoutLandscape = action(t, "", v -> editLayout(GameSettings.LANDSCAPE));
         mLayoutPortrait = action(t, "", v -> editLayout(GameSettings.PORTRAIT));
         action(t, "Change what the touch buttons do", v -> pickMap(true, -1));
+
+        // Sound: the levels volume-levels plays at (GameSettings.VOLUME_LEVELS); moving a slider turns it on
+        LinearLayout so = card(col, "Sound");
+        mMusicLabel = text("", 15, TEXT, true);
+        so.addView(mMusicLabel);
+        mMusic = slider(so, mMusicLabel, 0, 100, 5, v -> {
+            mS.musicVolume = v;
+            volumeChanged();
+        });
+        mVoiceLabel = text("", 15, TEXT, true);
+        so.addView(mVoiceLabel, Ui.full(dp(12)));
+        mVoice = slider(so, mVoiceLabel, 0, 100, 5, v -> {
+            mS.voiceVolume = v;
+            volumeChanged();
+        });
+        mSfxLabel = text("", 15, TEXT, true);
+        so.addView(mSfxLabel, Ui.full(dp(12)));
+        mSfx = slider(so, mSfxLabel, 0, 100, 5, v -> {
+            mS.sfxVolume = v;
+            volumeChanged();
+        });
+        note(so, "100% is the game's own level. The PC version's music is loud; the Dreamcast's sat lower. "
+                + "Moving a slider turns on Volume levels under Tweaks, Audio; turn it off there for the game's levels. "
+                + "Short music cues such as the 1-up keep their level.");
 
         // Controller
         LinearLayout p = card(col, "Controller");
@@ -467,6 +505,9 @@ public class Sa2SettingsActivity extends Activity {
         mOpacityLabel.setText(String.format(Locale.US, "Opacity: %d%%", mS.touchOpacity));
         mOpacity.setProgress(mS.touchOpacity / 10);
         describe(mOpacity, mOpacityLabel, mS.touchOpacity + "%");
+        volumeRow(mMusic, mMusicLabel, "Music", mS.musicVolume);
+        volumeRow(mVoice, mVoiceLabel, "Voices", mS.voiceVolume);
+        volumeRow(mSfx, mSfxLabel, "Sound effects", mS.sfxVolume);
         mPlaceLabel.setText("Picture position: " + placeName(mS.pictureY));
         mPlace.setProgress(mS.pictureY / 5);
         describe(mPlace, mPlaceLabel, placeName(mS.pictureY));

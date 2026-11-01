@@ -144,7 +144,18 @@ def test_the_tweaks_turned_on_go_in_the_lists_order(java):
     a name that is no line's is not sent."""
     names = [line.split("|")[0] for line in java("list")]
     assert java(2340, 1080, *reversed(names), "not-a-tweak") == [
-        "SA2_TWEAKS=" + ",".join(names), "[" + ",".join(names) + "]"]
+        *VOLUMES, "SA2_TWEAKS=" + ",".join(names), "[" + ",".join(names) + "]"]
+
+
+# The Sound card's three levels, at their stored defaults: sent whenever volume-levels is on.
+VOLUMES = ["SA2_MUSIC_VOLUME=100", "SA2_VOICE_VOLUME=100", "SA2_SFX_VOLUME=100"]
+
+
+def test_volume_levels_sends_the_sound_cards_three_levels_and_nothing_else_does(java):
+    """volume-levels (runtime/tweaks/volume-levels.c) reads its three levels from the game's
+    environment, so the session gets them with the tweak, and never without it."""
+    assert java(2340, 1080, "volume-levels") == [*VOLUMES, "SA2_TWEAKS=volume-levels", "[volume-levels]"]
+    assert java(2340, 1080, "analog-fix") == ["SA2_TWEAKS=analog-fix", "[analog-fix]"]
 
 
 def test_the_chao_world_launch_adds_its_two_tweaks_for_that_session_alone(java):
