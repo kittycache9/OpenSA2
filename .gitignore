@@ -8,6 +8,11 @@
 /build
 /.venv
 
+# Agent harness state (settings, worktrees, transcripts) stays local. The one tracked
+# entry is the skills link to .agents/skills.
+/.claude/*
+!/.claude/skills
+
 # Compiler output anywhere in the tree. `ship.py` stages with `git add -A`, so
 # an object file left in the repository root by a probe build is one command
 # away from being committed -- which nearly happened on 2026-09-21, when a

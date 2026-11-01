@@ -22,6 +22,9 @@ from xml.etree import ElementTree
 
 ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN_ROOTS = {"private", "build", ".venv", ".claude", "agents-journals"}
+# The skills folders Claude Code, Cursor, and OpenCode read: links to the one copy in
+# .agents/skills, the folder Codex reads. No other symlink is accepted.
+SKILL_LINKS = {".claude/skills", ".cursor/skills", ".opencode/skills"}
 FORBIDDEN_SUFFIXES = set(".exe .dll .so .a .o .obj .apk .zip .7z .jsonl .prs .pak .adx .ahx .gvr .gvm .pvr .pvm .sfd .csb .dds .afs .sa2s .y4m .mp4".split())
 TOKEN = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|sk-[A-Za-z0-9]{40,})\b")
 LINK = re.compile(r"\[[^\]]*\]\(([^\s)]+)(?:\s+[^)]*)?\)|(?:src|href)=[\"']([^\"']+)[\"']")
@@ -111,6 +114,8 @@ def check(root: Path, paths: list[Path], terms: list[str]) -> list[str]:
     for path in paths:
         rel = path.relative_to(root)
         if path.is_symlink():
+            if rel.as_posix() in SKILL_LINKS and path.readlink().as_posix() == "../.agents/skills":
+                continue
             failures.append(f"{rel}: symlinks are not accepted in the public source")
             continue
         if not path.is_file():

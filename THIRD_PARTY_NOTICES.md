@@ -32,6 +32,12 @@ The generators identify Unicode Consortium and CLDR data, and Microsoft's publis
 
 Upstream references: [Wine's data generator](https://github.com/wine-mirror/wine/blob/master/tools/make_unicode), [Unicode terms and licenses](https://www.unicode.org/copyright.html), [Microsoft's best-fit mapping catalogue](https://www.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/WindowsBestFit/readme.txt), and [Microsoft's supported code-page data description](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-ucoderef/d167d756-0c58-4564-a0de-77c647d367fa).
 
+## pstack
+
+`.agents/skills/` holds the agent skills of pstack 0.15.36 by Lauren Tan, copied unchanged from the [`pstack/skills` folder](https://github.com/cursor/plugins/tree/main/pstack) of `cursor/plugins` at commit `ae5650febf4320793844c12c4adaa937f417f8da`. `.claude/skills`, `.cursor/skills`, and `.opencode/skills` are links to that folder. The skills are contributor tooling and are not part of any build.
+
+The MIT license notice is preserved in [licenses/pstack-MIT.txt](licenses/pstack-MIT.txt).
+
 ## Community names
 
 The analyzer can read the X-Hax SA2 Mod Loader headers as an external community name source. The headers are not vendored. Consult the [upstream repository](https://github.com/X-Hax/sa2-mod-loader) for its terms. Do not include those headers as part of this source distribution.
