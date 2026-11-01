@@ -60,6 +60,22 @@ Use the [architecture guide](architecture.md) to choose a starting point. The ma
 | Guest memory, Windows services, and guest devices | `runtime/` |
 | Translation and compilation tools | `tools/s2/`, `tools/s3/`, and `tools/spike/` |
 
+## Build a tweak, not mod support
+
+Players often ask for SA2 Mod Manager support, because many PC mods fix the game. If you want to help, write the fix as a tweak. Building a mod loader costs much more, and a tweak gives you more.
+
+A PC mod is an x86 Windows DLL. It expects a running `sonic2app.exe` process: it patches the game's memory at fixed addresses, replaces its functions, and hooks Direct3D 9 calls. OpenSA2 has no such process. It translates the game into native code, so those addresses and functions no longer exist as the mod expects them. Loading mods would need a Windows DLL loader, the mod loader's own API, and Direct3D 9 hooks that fit our renderer. Android cannot load Windows DLLs at all. Even then, a mod loader could not test or review an unknown DLL. Several mods patching the same bytes also conflict with each other.
+
+A tweak is the same fix written against the translated game:
+
+- It works on Android, Linux, and Windows without extra work.
+- It is off until the player turns it on, and it shows up in the settings screen and the [Tweaks](downloads.md#tweaks) table.
+- Replays and the launcher's self-test never run it, so it cannot change the game's measured behavior.
+- A test builds it against a stand-in for the game and checks the result byte for byte.
+- It is one small file that a reviewer can read, not a binary to trust.
+
+Porting a mod means finding out what it changes, then reading the matching code in the executable and writing the fix yourself. A mod's source and its behavior tell you where to look; copy none of its code. Check a mod's license first. SA2 Render Fix, SA2 Input Controls, and SA2 Volume Controls are under CC BY-NC-ND 4.0, which forbids adapted copies and commercial use, so OpenSA2's GPL-3.0 cannot take their code. Credit the mod in the tweak's header and in its row of the Tweaks table, the way `runtime/tweaks/model-tint-fix.c` credits SA2 Render Fix.
+
 ## Add a tweak
 
 A tweak is an optional change to the game's behavior that a player turns on with the `SA2_TWEAKS` setting. A tweak adds its own file and lines and changes no existing line, so several tweaks can be written at the same time in separate branches:
