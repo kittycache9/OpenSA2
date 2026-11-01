@@ -90,7 +90,7 @@ The game build is a developer workflow, with a Linux build host used for desktop
 
 Before running a full build, prepare these inputs:
 
-- A supported shipped `sonic2app.exe` and the matching unpacked executable used for translation.
+- A supported shipped `sonic2app.exe` and the matching unpacked executable used for translation. See [Make the unpacked executable](#make-the-unpacked-executable).
 - A Ghidra function map, translated LLVM modules, jump-table modules, extra blocks, and generated dispatch tables.
 - The pinned compiler and translation tools, including Remill, LLVM-compatible Clang, and Zig for cross builds.
 - SDL3 and the renderer dependencies, built with the expected project patches and configuration.
@@ -111,6 +111,48 @@ The current build entry points are:
 | Build the Android app | `tools/s8/android_app.py` | The Android game, renderer dependencies, and Android toolchain. |
 
 These tools do not form a fresh-checkout build command yet. Keep generated code, binaries, and game files local. Do not commit them.
+
+## Make the unpacked executable
+
+The translation reads `private/exe/sonic2app-unpacked.exe`, a copy of your own `sonic2app.exe` with the Steam DRM wrapper removed. The build tools accept only the file whose SHA-256 `tools/pins.json` pins, so make it exactly this way:
+
+- Steamless 3.1.0.5 (`Steamless.CLI.exe` from the [release](https://github.com/atom0s/Steamless/releases/tag/v3.1.0.5)), with its default options and no flags.
+- Run under Proton Experimental, whose wine-mono 11.3.0 is the .NET runtime that produces the pinned file. Steamless run on Microsoft .NET Framework or .NET 8 with the same options writes a file with a different hash, and the build refuses it.
+
+On Linux, with Steam and Proton Experimental installed:
+
+1. Copy your game's `sonic2app.exe` to `private/exe/` and check it against the pin. The hash must be `4b1e09d782a2d919cbed2324ba2c0c78ef5fbe1677d400edab39608191f12c16`.
+
+   ```bash
+   mkdir -p private/exe
+   cp "$HOME/.local/share/Steam/steamapps/common/Sonic Adventure 2/sonic2app.exe" private/exe/
+   sha256sum private/exe/sonic2app.exe
+   ```
+
+2. Unzip the Steamless release into `private/predecessor-tools/steamless`. Copy `Plugins/Steamless.API.dll` next to `Steamless.CLI.exe`; without it the CLI fails with a `TypeLoadException`.
+
+3. Create a Proton prefix, then run Steamless from its own folder. Pass the game file as a `Z:` path.
+
+   ```bash
+   source tools/env.sh
+   export STEAM_COMPAT_DATA_PATH="$SA2_PROTON_PREFIX"
+   export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/Steam"
+   PROTON="$HOME/.local/share/Steam/steamapps/common/Proton - Experimental/proton"
+   mkdir -p "$SA2_PROTON_PREFIX"
+   "$PROTON" run wineboot -u
+   cd private/predecessor-tools/steamless
+   "$PROTON" runinprefix Steamless.CLI.exe "Z:$SA2_EXE_SHIPPED"
+   cd -
+   ```
+
+4. Steamless writes `private/exe/sonic2app.exe.unpacked.exe`. Rename it and check it against the pin. The hash must be `c97b116fbd1d64108cbc8ec403b4a59ba6f815159b9a0ad896668d6c19c1bfe9`.
+
+   ```bash
+   mv private/exe/sonic2app.exe.unpacked.exe "$SA2_EXE_UNPACKED"
+   sha256sum "$SA2_EXE_UNPACKED"
+   ```
+
+If your Steam library is somewhere else, change the paths in steps 1 and 3. If the hash in step 4 differs, check the Steamless version and that you ran it under Proton, not Windows .NET.
 
 ## Test a locally assembled desktop build
 
