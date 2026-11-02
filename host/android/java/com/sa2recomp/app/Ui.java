@@ -197,7 +197,7 @@ final class Ui {
     }
 
     /** The screen: an optional top app bar that stays put, then `col` scrolling under it, centred. */
-    static void screen(Activity a, View appBar, Column col) {
+    static LinearLayout screen(Activity a, View appBar, Column col) {
         LinearLayout root = new LinearLayout(a);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(SURFACE);
@@ -212,6 +212,7 @@ final class Ui {
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         padForSystemBars(root);
         a.setContentView(root);
+        return root;
     }
 
     /** A small top app bar: the back arrow, the title, and an optional action at the end. */
@@ -275,13 +276,25 @@ final class Ui {
         }
 
         void show(String title) {
+            boolean first = !shown, forward = title != null;
+            shown = true;
             current = title;
             Column col = title == null ? root : pages.get(title);
             detach(col);
-            screen(a, topAppBar(a, title == null ? rootTitle : title, title == null ? rootAction : null, v -> {
+            LinearLayout screen = screen(a, topAppBar(a, title == null ? rootTitle : title,
+                                                      title == null ? rootAction : null, v -> {
                 if (!back()) a.finish();
             }), col);
+            if (first) return;
+            // Material's shared-axis X: the page comes in from the side it is going to, fading in. The
+            // animator follows the system's animation scale, so Remove animations makes it instant.
+            screen.setAlpha(0f);
+            screen.setTranslationX(dp(a, forward ? 32 : -32));
+            screen.animate().alpha(1f).translationX(0f).setDuration(300)
+                  .setInterpolator(new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)).start();
         }
+
+        private boolean shown;
 
         /** Back to the root from a page; false when the root shows. */
         boolean back() {
