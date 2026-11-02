@@ -38,6 +38,7 @@ public class Sa2TweaksActivity extends Activity {
         final Ui.Icon expand;
         final LinearLayout body;
         final Map<String, View> rows = new HashMap<>();
+        View divider;     // the hairline above its row; none above the first
         boolean open;
 
         Group(GameSettings.TweakGroup group, Ui.ListRow header, Ui.Icon expand, LinearLayout body) {
@@ -117,7 +118,11 @@ public class Sa2TweaksActivity extends Activity {
         for (String problem : problems) Log.w("sa2recomp", "sa2 tweaks screen: " + problem);
         LinearLayout list = Ui.group(this);
         for (GameSettings.TweakGroup group : groups) {
-            if (!mGroups.isEmpty()) list.addView(Ui.divider(this), Ui.hairline(this));
+            View divider = null;
+            if (!mGroups.isEmpty()) {
+                divider = Ui.divider(this);
+                list.addView(divider, Ui.hairline(this));
+            }
             Ui.Icon expand = new Ui.Icon(this, Ui.Icon.EXPAND, Ui.ON_SURFACE_VARIANT);
             ImageView end = new ImageView(this);
             end.setImageDrawable(expand);
@@ -129,6 +134,7 @@ public class Sa2TweaksActivity extends Activity {
             Ui.ListRow header = new Ui.ListRow(this, group.heading, "", end, v -> toggleGroup(self[0]));
             Ui.type(header.headline, Ui.TITLE_MEDIUM);
             self[0] = new Group(group, header, expand, body);
+            self[0].divider = divider;
             mGroups.add(self[0]);
             list.addView(header.view);
             for (GameSettings.Tweak tweak : group.tweaks) {
@@ -189,6 +195,7 @@ public class Sa2TweaksActivity extends Activity {
      * one, each group is as the player left it. */
     private void filter() {
         int shown = 0;
+        boolean anyAbove = false;
         for (Group g : mGroups) {
             int matches = 0;
             for (GameSettings.Tweak t : g.group.tweaks) {
@@ -198,7 +205,10 @@ public class Sa2TweaksActivity extends Activity {
                 if (hit) matches++;
             }
             boolean searching = !mQuery.isEmpty();
-            g.header.view.setVisibility(searching && matches == 0 ? View.GONE : View.VISIBLE);
+            boolean visible = !(searching && matches == 0);
+            g.header.view.setVisibility(visible ? View.VISIBLE : View.GONE);
+            if (g.divider != null) g.divider.setVisibility(visible && anyAbove ? View.VISIBLE : View.GONE);
+            anyAbove |= visible;
             g.body.setVisibility(searching ? (matches > 0 ? View.VISIBLE : View.GONE) : g.open ? View.VISIBLE : View.GONE);
             if (mChaoBoosts != null && g.body == mChaoBoosts.getParent()) mChaoBoosts.setVisibility(searching ? View.GONE : View.VISIBLE);
             g.expand.rotate(searching || g.open ? 180 : 0);

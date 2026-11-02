@@ -267,7 +267,7 @@ public class Sa2SettingsActivity extends Activity {
         mAspect = segments(d, new String[] {"Screen", "21:9", "16:9", "4:3"}, ac);
         label(d, "Resolution", false);
         mResolution = Ui.button(this, "", v -> pickResolution());
-        Ui.listButton(mResolution);
+        Ui.navButton(mResolution);
         d.addView(mResolution, Ui.full(dp(0)));
         note(d, "Fewer lines can run faster on a slower phone.");
         label(d, "Low-FPS speed fix (experimental)", false);
@@ -309,7 +309,7 @@ public class Sa2SettingsActivity extends Activity {
         mLayoutPortrait = action(t, "", v -> editLayout(GameSettings.PORTRAIT));
         Ui.navButton(mLayoutLandscape);
         Ui.navButton(mLayoutPortrait);
-        action(t, "Change what the touch buttons do", v -> pickMap(true, -1));
+        Ui.navButton(action(t, "Change what the touch buttons do", v -> pickMap(true, -1)));
 
         // Sound: the levels volume-levels plays at (GameSettings.VOLUME_LEVELS); moving a slider turns it on
         LinearLayout so = card(col, "Sound");
@@ -337,7 +337,7 @@ public class Sa2SettingsActivity extends Activity {
 
         // Controller
         LinearLayout p = card(col, "Controller");
-        action(p, "Change what the controller buttons do", v -> pickMap(false, -1));
+        Ui.navButton(action(p, "Change what the controller buttons do", v -> pickMap(false, -1)));
         note(p, "Buttons are named by where they are: the bottom face button is A, as on an Xbox controller.");
 
         // Tweaks: their own screen (Sa2TweaksActivity), with a count of the ones on.
