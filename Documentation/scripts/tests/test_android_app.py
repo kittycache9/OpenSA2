@@ -396,3 +396,17 @@ def test_the_chao_world_button_hands_one_launch_the_chao_tweaks():
     assert 'EXTRA_TWEAKS = "sa2.tweaks";' in activity
     assert "String[] launchTweaks = it == null ? null : it.getStringArrayExtra(EXTRA_TWEAKS);" in activity
     assert "s.sessionSettings(screen[0], screen[1], launchTweaks == null ? new String[0] : launchTweaks)" in activity
+
+
+def test_suggest_a_tweak_opens_the_tweak_idea_form_with_its_own_field():
+    """Tweaks' suggestion row opens the repository's Tweak idea form; a search's words go in the form's
+    `idea` field and its title, so the app's query keys must be the form's ids. The browser opens
+    it, so the app still asks for no network permission."""
+    form = (ROOT / ".github/ISSUE_TEMPLATE/tweak_request.yml").read_text()
+    tweaks = (ROOT / "host/android/java/com/sa2recomp/app/Sa2TweaksActivity.java").read_text()
+    assert 'title: "[Tweak] "' in form and "    id: idea\n" in form and "    id: owns_game\n" in form
+    assert ('TWEAK_FORM = "https://github.com/kittycache9/OpenSA2/issues/new?template=tweak_request.yml"'
+            in tweaks)
+    assert '"&title=" + java.net.URLEncoder.encode("[Tweak] " + idea, "UTF-8")' in tweaks
+    assert '"&idea=" + java.net.URLEncoder.encode(idea, "UTF-8")' in tweaks
+    assert "android.permission.INTERNET" not in (ROOT / "host/android/AndroidManifest.xml").read_text()

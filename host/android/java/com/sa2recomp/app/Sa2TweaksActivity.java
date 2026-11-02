@@ -39,7 +39,11 @@ public class Sa2TweaksActivity extends Activity {
     private Ui.Group mResultGroup, mGroups;
     private TextView mCount, mNoMatch;
     private Button mTurnOff;
-    private String mQuery = "";
+    private String mQuery = "", mTyped = "";
+    private Ui.ListRow mSuggest;
+
+    /** The repository's "Tweak idea" form (.github/ISSUE_TEMPLATE/tweak_request.yml); `idea` is its field. */
+    static final String TWEAK_FORM = "https://github.com/kittycache9/OpenSA2/issues/new?template=tweak_request.yml";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -102,13 +106,15 @@ public class Sa2TweaksActivity extends Activity {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void afterTextChanged(Editable s) {
-                mQuery = s.toString().trim().toLowerCase(Locale.ROOT);
+                mTyped = s.toString().trim();
+                mQuery = mTyped.toLowerCase(Locale.ROOT);
                 filter();
             }
         });
         root.addView(search.view, Ui.full(dp(16)));
 
-        mNoMatch = Ui.text(this, "No tweak matches that.", Ui.BODY_MEDIUM, Ui.ON_SURFACE_VARIANT);
+        mNoMatch = Ui.text(this, "No tweak does that yet. You can suggest it below.", Ui.BODY_MEDIUM,
+                           Ui.ON_SURFACE_VARIANT);
         mNoMatch.setPadding(dp(16), 0, dp(16), 0);
         mNoMatch.setVisibility(View.GONE);
         root.addView(mNoMatch, Ui.full(dp(24)));
@@ -154,6 +160,11 @@ public class Sa2TweaksActivity extends Activity {
             page.addView(Ui.footnote(this, "Tap a note to read all of it. Changes apply the next time the game starts."),
                          Ui.full(dp(10)));
         }
+        Ui.Group ideas = new Ui.Group(this, true);
+        mSuggest = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.IDEA), "Suggest a tweak", "", null, v -> suggest(mTyped));
+        ideas.add(mSuggest.view);
+        root.addView(ideas.view, Ui.full(dp(16)));
+        suggestText();
         mPages.start();
     }
 
@@ -196,6 +207,33 @@ public class Sa2TweaksActivity extends Activity {
         mResultGroup.view.setVisibility(searching && shown > 0 ? View.VISIBLE : View.GONE);
         mGroups.view.setVisibility(searching ? View.GONE : View.VISIBLE);
         mNoMatch.setVisibility(searching && shown == 0 ? View.VISIBLE : View.GONE);
+        suggestText();
+    }
+
+    /** The suggestion row: a general invitation, or the search's words when a search is on. */
+    private void suggestText() {
+        boolean searching = !mTyped.isEmpty();
+        mSuggest.headline.setText(searching ? "Suggest \u201c" + mTyped + "\u201d" : "Suggest a tweak");
+        mSuggest.supporting.setText(searching ? "Opens a tweak idea on GitHub with this filled in"
+                                              : "Tell us what you'd like to turn on. Opens a form on GitHub.");
+        mSuggest.supporting.setVisibility(View.VISIBLE);
+    }
+
+    /** The "Tweak idea" form in the browser, with `idea` as its name and title when there is one. */
+    private void suggest(String idea) {
+        String url = TWEAK_FORM;
+        try {
+            if (!idea.isEmpty())
+                url += "&title=" + java.net.URLEncoder.encode("[Tweak] " + idea, "UTF-8")
+                       + "&idea=" + java.net.URLEncoder.encode(idea, "UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            url = TWEAK_FORM;
+        }
+        try {
+            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)));
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(this, url, Toast.LENGTH_LONG).show();
+        }
     }
 
     private void update() {

@@ -576,7 +576,7 @@ final class Ui {
         static final int BACK = 0, CHEVRON = 1, EXPAND = 2, SEARCH = 3, CLOSE = 4, TUNE = 5, DISPLAY = 6, TOUCH = 7,
                 GAMEPAD = 8, SOUND = 9, SAVE = 10, CODE = 11, PLAY = 12, RESET = 13, GEAR = 14, ARCHIVE = 15,
                 FOLDER = 16, FLAG = 17, COPY = 18, SHARE = 19, DOWNLOAD = 20, BAG = 21, STAR = 22, BOOK = 23,
-                EGG = 24, CHECK = 25, DOTS = 26, LIST = 27;
+                EGG = 24, CHECK = 25, DOTS = 26, LIST = 27, IDEA = 28;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final int kind, size;
         private float rotation;
@@ -743,6 +743,12 @@ final class Ui {
                     p.addCircle(6 * s, 12 * s, 1.2f * s, Path.Direction.CW);
                     p.addCircle(12 * s, 12 * s, 1.2f * s, Path.Direction.CW);
                     p.addCircle(18 * s, 12 * s, 1.2f * s, Path.Direction.CW);
+                    break;
+                case IDEA:
+                    p.addArc(6 * s, 3 * s, 18 * s, 15 * s, 135, 270);
+                    p.moveTo(7.8f * s, 13.2f * s); p.lineTo(9.5f * s, 16.5f * s); p.lineTo(14.5f * s, 16.5f * s);
+                    p.lineTo(16.2f * s, 13.2f * s);
+                    p.moveTo(10 * s, 20 * s); p.lineTo(14 * s, 20 * s);
                     break;
                 case LIST:
                     p.moveTo(9 * s, 7 * s); p.lineTo(20 * s, 7 * s);

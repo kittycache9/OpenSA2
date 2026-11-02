@@ -1,0 +1,44 @@
+name: Tweak idea
+description: Suggest an optional tweak, such as a fix, an assist, or a change to how the game looks, sounds or plays.
+title: "[Tweak] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tweaks are optional changes to the game. Each one is off until you turn it on, and replays never use them. The [current tweaks](https://github.com/kittycache9/OpenSA2#tweaks) are listed in the README.
+
+        PC mods can't be loaded directly, but many can be rebuilt as tweaks. If your idea comes from a mod or a Mod Loader code, say which one.
+  - type: checkboxes
+    id: owns_game
+    attributes:
+      label: Game ownership
+      description: OpenSA2 needs your own copy of the 2012 PC release of Sonic Adventure 2, as Steam sells and installs it.
+      options:
+        - label: I own Sonic Adventure 2 on Steam. I understand that the project does not help with installing a copy I do not own, or a modified, repacked, or downloaded copy.
+          required: true
+  - type: input
+    id: idea
+    attributes:
+      label: Tweak idea
+      description: A short name, as it might appear in the Tweaks screen.
+      placeholder: Skip the results screen
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What should it do?
+      description: Describe what changes in the game when the tweak is on.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would you turn it on?
+      description: Optional. What it would make better for you.
+  - type: input
+    id: source
+    attributes:
+      label: Based on a mod or code?
+      description: Optional. The name or link of a PC mod or Mod Loader code that does this.
