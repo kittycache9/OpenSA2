@@ -976,7 +976,7 @@ public class Sa2SetupActivity extends Activity {
         mChaoNote.setPadding(dp(16), 0, dp(16), 0);
         mChaoNote.setGravity(Gravity.CENTER_HORIZONTAL);
         mSettings = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.GEAR), "Game settings",
-                "Display, controls, tweaks and more", Ui.chevron(this), v -> openSettings());
+                "Display, controls, volume and tweaks", Ui.chevron(this), v -> openSettings());
         mTweaksCard = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.TUNE, Ui.PRIMARY_COLOR, Ui.ON_PRIMARY), "", "",
                 Ui.chevron(this), v -> startActivity(new Intent(this, Sa2TweaksActivity.class)));
         GradientDrawable promo = new GradientDrawable();
