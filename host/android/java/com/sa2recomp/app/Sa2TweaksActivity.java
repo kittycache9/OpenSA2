@@ -142,8 +142,12 @@ public class Sa2TweaksActivity extends Activity {
             });
 
             Ui.Column page = mPages.add(group.heading);
+            TextView hint = Ui.text(this, "Tap a note to read all of it. Changes apply the next time the game starts.",
+                                    Ui.BODY_MEDIUM, Ui.ON_SURFACE_VARIANT);
+            hint.setPadding(dp(16), 0, dp(16), 0);
+            page.addView(hint, Ui.full(dp(4)));
             Ui.Group list = new Ui.Group(this, false);
-            page.addView(list.view, Ui.full(dp(8)));
+            page.addView(list.view, Ui.full(dp(16)));
             for (GameSettings.Tweak tweak : group.tweaks) {
                 list.add(tweakRow(tweak));
                 View result = tweakRow(tweak);
@@ -157,8 +161,6 @@ public class Sa2TweaksActivity extends Activity {
                 list.add(boosts.view);
                 mRefresh.add(() -> boosts.setEnabled(!mS.tweaksOn.containsAll(Arrays.asList(GameSettings.CHAO_BOOSTS))));
             }
-            page.addView(Ui.footnote(this, "Tap a note to read all of it. Changes apply the next time the game starts."),
-                         Ui.full(dp(10)));
         }
         Ui.Group ideas = new Ui.Group(this, true);
         mSuggest = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.IDEA), "Suggest a tweak", "", null, v -> suggest(mTyped));
