@@ -103,7 +103,8 @@ public class Sa2SetupActivity extends Activity {
 
     private TextView mStatus, mBanner, mProgress, mLog;
     private LinearLayout mActions;       // Play and the install buttons, arranged by layoutActions
-    private Button mZip, mCheck, mPlay, mChao, mSettings, mGithub, mCopy, mSummary, mShare;
+    private Button mZip, mCheck, mPlay, mChao;   // the big buttons
+    private Ui.ListRow mSettings, mZipRow, mCheckRow, mGithub, mCopy, mSummary, mShare;
     private TextView mChaoNote;
     private final List<String> mInstallOut = new ArrayList<>();      // the last installer run's lines
     private String mInstallVerdict;      // InstallVerdict's account of the last refused run; null otherwise
@@ -423,6 +424,8 @@ public class Sa2SetupActivity extends Activity {
         mCheck.setEnabled(!busy);
         mPlay.setEnabled(!busy);
         mChao.setEnabled(!busy);
+        mZipRow.setEnabled(!busy);
+        mCheckRow.setEnabled(!busy);
     }
 
     // ------------------------------------------------------------ the installer
@@ -737,10 +740,7 @@ public class Sa2SetupActivity extends Activity {
     }
 
     private void setReportEnabled(boolean on) {
-        mGithub.setEnabled(on);
-        mCopy.setEnabled(on);
-        mSummary.setEnabled(on);
-        mShare.setEnabled(on);
+        for (Ui.ListRow r : new Ui.ListRow[] {mGithub, mCopy, mSummary, mShare}) r.setEnabled(on);
     }
 
     /** The bug-report form (.github/ISSUE_TEMPLATE/bug_report.yml) with its title, platform and
@@ -807,35 +807,28 @@ public class Sa2SetupActivity extends Activity {
      * again. Not installed: Choose game ZIP on its own, then the folder check and the settings. */
     private void layoutActions(boolean installed) {
         mActions.removeAllViews();
-        for (View v : new View[] {mPlay, mChao, mChaoNote, mSettings, mZip, mCheck}) Ui.detach(v);
-        LinearLayout more = Ui.card(this);
+        for (View v : new View[] {mPlay, mChao, mChaoNote, mZip, mCheck, mSettings.view, mZipRow.view, mCheckRow.view})
+            Ui.detach(v);
+        Ui.Group more = new Ui.Group(this, true);
         if (installed) {
-            mZip.setText("Reinstall from ZIP");
-            mCheck.setText("Reinstall from folder");
             Ui.style(mPlay, Ui.PRIMARY);
             Ui.style(mChao, Ui.SECONDARY);
-            Ui.navButton(mSettings);
-            Ui.listButton(mZip);
-            Ui.listButton(mCheck);
             mActions.addView(mPlay, Ui.full(0));
             mActions.addView(mChao, Ui.full(dp(12)));
             mActions.addView(mChaoNote, Ui.full(dp(8)));
-            more.addView(mSettings, Ui.full(0));
-            more.addView(Ui.divider(this), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
-            more.addView(mZip, Ui.full(0));
-            more.addView(mCheck, Ui.full(0));
+            more.add(mSettings.view);
+            more.add(mZipRow.view);
+            more.add(mCheckRow.view);
         } else {
             mZip.setText("Choose game ZIP");
             mCheck.setText("Check game folder");
             Ui.style(mZip, Ui.PRIMARY);
             Ui.style(mCheck, Ui.QUIET);
-            Ui.navButton(mSettings);
             mActions.addView(mZip, Ui.full(0));
             mActions.addView(mCheck, Ui.full(dp(12)));
-            more.addView(mSettings, Ui.full(0));
+            more.add(mSettings.view);
         }
-        more.setPadding(dp(16), dp(4), dp(16), dp(4));
-        mActions.addView(more, Ui.full(dp(24)));
+        mActions.addView(more.view, Ui.full(dp(24)));
         mZip.setEnabled(!mBusy);
         mCheck.setEnabled(!mBusy);
         mPlay.setEnabled(!mBusy);
@@ -847,8 +840,7 @@ public class Sa2SetupActivity extends Activity {
     private void banner(String text) {
         mBanner.setText(text == null ? "" : text);
         mBanner.setVisibility(text == null ? View.GONE : View.VISIBLE);
-        if (text == null) Ui.listButton(mGithub);
-        else Ui.style(mGithub, Ui.ALERT);
+        mGithub.headline.setTextColor(text == null ? Ui.ON_SURFACE : Ui.ERROR);
     }
 
     /** The footer: who makes the app and who has contributed to it (a tap opens GitHub's contributors
@@ -859,72 +851,13 @@ public class Sa2SetupActivity extends Activity {
     private LinearLayout about() {
         LinearLayout f = new LinearLayout(this);
         f.setOrientation(LinearLayout.VERTICAL);
-        f.setGravity(Gravity.CENTER_HORIZONTAL);
-
-        View bar = new View(this);
-        GradientDrawable accent = new GradientDrawable();
-        accent.setCornerRadius(dp(2));
-        accent.setColor(Ui.PRIMARY_COLOR);
-        bar.setBackground(accent);
-        f.addView(bar, new LinearLayout.LayoutParams(dp(40), dp(3)));
-
-        TextView who = new TextView(this);
-        SpannableStringBuilder b = new SpannableStringBuilder();
-        int bright = Ui.ON_SURFACE;
-        appendStyled(b, "OpenSA2", bright, true);
-        b.append(" is an open-source project by ");
-        appendStyled(b, "kittycache9", bright, true);
-        who.setText(b);
-        who.setTextColor(Ui.ON_SURFACE_VARIANT);
-        who.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        who.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                                                                     ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(14);
-        f.addView(who, lp);
-
-        int linksGap = dp(12);
-        if (CONTRIBUTORS.length > 0) {
-            TextView with = new TextView(this);
-            SpannableStringBuilder c = new SpannableStringBuilder("With contributions from ");
-            StringBuilder names = new StringBuilder();
-            for (int i = 0; i < CONTRIBUTORS.length; i++) {
-                String join = i == 0 ? "" : i == CONTRIBUTORS.length - 1 ? " and " : ", ";
-                c.append(join);
-                appendStyled(c, CONTRIBUTORS[i], bright, true);
-                names.append(join).append(CONTRIBUTORS[i]);
-            }
-            with.setText(c);
-            with.setTextColor(Ui.ON_SURFACE_VARIANT);
-            with.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            with.setGravity(Gravity.CENTER);
-            with.setMinHeight(dp(40));   // a tap target as tall as the pills below; the ripple stays on the text
-            with.setMinimumHeight(dp(40));
-            with.setContentDescription("With contributions from " + names + ". Opens the contributors page on GitHub.");
-            GradientDrawable mask = new GradientDrawable();
-            mask.setCornerRadius(dp(6));
-            mask.setColor(Color.WHITE);
-            with.setBackground(new RippleDrawable(ColorStateList.valueOf(0x40FFFFFF), null,
-                                                  new InsetDrawable(mask, 0, dp(10), 0, dp(10))));
-            with.setPadding(dp(8), 0, dp(8), 0);
-            String contributors = PROJECT + "/graphs/contributors";
-            with.setOnClickListener(v -> {
-                try {
-                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(contributors)));
-                } catch (android.content.ActivityNotFoundException e) {
-                    Toast.makeText(this, contributors, Toast.LENGTH_LONG).show();
-                }
-            });
-            lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = -dp(6);   // the 40 dp box centres the text, which sits 6 dp under the maker's line
-            f.addView(with, lp);
-            linksGap = dp(2);        // and the pills keep 14 dp under the text
-        }
-
-        Button github = pill("View on GitHub", v -> openLink(PROJECT));
-        Button updates = pill("Check for updates", v -> openLink(PROJECT + "/releases"));
-        Button steam = pill("Get the game on Steam", v -> openLink(STEAM));
-        Button tell = pill("Share OpenSA2", v -> {
+        f.addView(Ui.heading(this, "About"), Ui.full(0));
+        Ui.Group links = new Ui.Group(this, true);
+        f.addView(links.view, Ui.full(dp(12)));
+        row(links, Ui.Icon.CODE, "View on GitHub", "Source, releases and issues", v -> openLink(PROJECT));
+        row(links, Ui.Icon.DOWNLOAD, "Check for updates", "Opens the releases page", v -> openLink(PROJECT + "/releases"));
+        row(links, Ui.Icon.BAG, "Get the game on Steam", "Sonic Adventure 2 on the Steam store", v -> openLink(STEAM));
+        row(links, Ui.Icon.SHARE, "Share OpenSA2", "Send a friend the download link", v -> {
             Intent send = new Intent(Intent.ACTION_SEND);
             send.setType("text/plain");
             send.putExtra(Intent.EXTRA_SUBJECT, "OpenSA2");
@@ -937,39 +870,37 @@ public class Sa2SetupActivity extends Activity {
                 Toast.makeText(this, PROJECT + "/releases", Toast.LENGTH_LONG).show();
             }
         });
-        LinearLayout links = new LinearLayout(this);
-        links.setOrientation(LinearLayout.HORIZONTAL);
-        links.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                                                                      ViewGroup.LayoutParams.WRAP_CONTENT);
-        gap.rightMargin = dp(8);
-        links.addView(github, gap);
-        links.addView(tell);
-        lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = linksGap;
-        f.addView(links, lp);
 
-        LinearLayout more = new LinearLayout(this);
-        more.setOrientation(LinearLayout.HORIZONTAL);
-        more.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams gap2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                                                                       ViewGroup.LayoutParams.WRAP_CONTENT);
-        gap2.rightMargin = dp(8);
-        more.addView(updates, gap2);
-        more.addView(steam);
-        lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(8);
-        f.addView(more, lp);
+        int bright = Ui.ON_SURFACE;
+        SpannableStringBuilder b = new SpannableStringBuilder();
+        appendStyled(b, "OpenSA2", bright, true);
+        b.append(" is an open-source project by ");
+        appendStyled(b, "kittycache9", bright, true);
+        if (CONTRIBUTORS.length > 0) {
+            b.append(", with contributions from ");
+            for (int i = 0; i < CONTRIBUTORS.length; i++) {
+                b.append(i == 0 ? "" : i == CONTRIBUTORS.length - 1 ? " and " : ", ");
+                appendStyled(b, CONTRIBUTORS[i], bright, true);
+            }
+        }
+        b.append(".");
+        TextView who = Ui.text(this, b, Ui.BODY_SMALL, Ui.ON_SURFACE_VARIANT);
+        who.setPadding(dp(16), dp(4), dp(16), dp(4));
+        who.setMinHeight(dp(48));
+        who.setGravity(Gravity.CENTER_VERTICAL);
+        String contributors = PROJECT + "/graphs/contributors";
+        who.setContentDescription(b + " Opens the contributors page on GitHub.");
+        who.setBackground(new RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), null, null));
+        who.setOnClickListener(v -> openLink(contributors));
+        f.addView(who, Ui.full(dp(12)));
 
-        TextView legal = new TextView(this);
-        legal.setText("Not affiliated with SEGA or Sonic Team.");
-        legal.setTextColor(Ui.OUTLINE);
-        legal.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        legal.setGravity(Gravity.CENTER_HORIZONTAL);
-        lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(12);
-        f.addView(legal, lp);
+        f.addView(Ui.footnote(this, "Not affiliated with SEGA or Sonic Team."), Ui.full(0));
         return f;
+    }
+
+    /** An About row: an icon, its title and what it opens. */
+    private void row(Ui.Group g, int icon, String title, String supporting, View.OnClickListener click) {
+        g.add(new Ui.ListRow(this, Ui.badge(this, icon), title, supporting, null, click).view);
     }
 
     /** Opens `url` in the browser (or the Steam app for a Steam link); with none installed, shows the address. */
@@ -979,16 +910,6 @@ public class Sa2SetupActivity extends Activity {
         } catch (android.content.ActivityNotFoundException e) {
             Toast.makeText(this, url, Toast.LENGTH_LONG).show();
         }
-    }
-
-    /** A small rounded, outlined button for the footer's links. */
-    private Button pill(String text, View.OnClickListener click) {
-        Button b = Ui.button(this, text, click);
-        Ui.style(b, Ui.QUIET);
-        b.setMinHeight(dp(40));
-        b.setMinimumHeight(dp(40));
-        b.setPadding(dp(16), 0, dp(16), 0);
-        return b;
     }
 
     private static void appendStyled(SpannableStringBuilder b, String text, int color, boolean bold) {
@@ -1033,7 +954,16 @@ public class Sa2SetupActivity extends Activity {
         mChaoNote.setTextColor(Ui.ON_SURFACE_VARIANT);
         mChaoNote.setPadding(dp(16), 0, dp(16), 0);
         mChaoNote.setGravity(Gravity.CENTER_HORIZONTAL);
-        mSettings = Ui.button(this, "Game settings", v -> openSettings());
+        mSettings = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.GEAR), "Game settings",
+                "Display, controls, tweaks and more", Ui.chevron(this), v -> openSettings());
+        mZipRow = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.ARCHIVE), "Reinstall from ZIP",
+                "Copies the game in again from a ZIP", null, v -> pickZip());
+        mCheckRow = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.FOLDER), "Reinstall from folder",
+                "Checks the game folder again", null, v -> {
+                    mAutoPlayDone = true;
+                    mHoldPlay = false;
+                    install();
+                });
         mZip = Ui.button(this, "Choose game ZIP", v -> pickZip());
         mCheck = Ui.button(this, "Check game folder", v -> {
             mAutoPlayDone = true;
@@ -1051,18 +981,18 @@ public class Sa2SetupActivity extends Activity {
         col.addView(mProgress, Ui.full(dp(12)));
 
         col.addView(Ui.heading(this, "Something went wrong?"), Ui.full(dp(28)));
-        mGithub = Ui.button(this, "Report on GitHub", v -> report(GITHUB));
-        mCopy = Ui.button(this, "Copy report", v -> report(COPY));
-        mSummary = Ui.button(this, "Copy summary", v -> report(SUMMARY));
-        mShare = Ui.button(this, "Share report", v -> report(SHARE));
-        LinearLayout reports = Ui.card(this);
-        reports.setPadding(dp(16), dp(4), dp(16), dp(4));
-        for (Button b : new Button[] {mGithub, mCopy, mSummary, mShare}) {
-            Ui.listButton(b);
-            reports.addView(b, Ui.full(0));
-        }
-        col.addView(reports, Ui.full(dp(8)));
-        col.addView(about(), Ui.full(dp(40)));
+        Ui.Group reports = new Ui.Group(this, true);
+        mGithub = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.FLAG), "Report on GitHub",
+                "Copies a crash report and opens the bug form", null, v -> report(GITHUB));
+        mCopy = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.COPY), "Copy report", "The whole report, to paste in an issue",
+                null, v -> report(COPY));
+        mSummary = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.LIST), "Copy summary", "A shorter one that fits a comment",
+                null, v -> report(SUMMARY));
+        mShare = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.SHARE), "Share report", "Sends it to another app",
+                null, v -> report(SHARE));
+        for (Ui.ListRow r : new Ui.ListRow[] {mGithub, mCopy, mSummary, mShare}) reports.add(r.view);
+        col.addView(reports.view, Ui.full(dp(12)));
+        col.addView(about(), Ui.full(dp(28)));
 
         mLog = new TextView(this);
         mLog.setTextColor(Ui.ON_SURFACE_VARIANT);

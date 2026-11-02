@@ -8,6 +8,20 @@
         <item name="android:windowBackground">@color/sa2_night</item>
         <item name="android:statusBarColor">@color/sa2_night</item>
         <item name="android:navigationBarColor">@color/sa2_night</item>
+        <item name="android:alertDialogTheme">@style/Sa2Dialog</item>
+    </style>
+    <style name="Sa2Dialog" parent="android:Theme.Material.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/dialog_bg</item>
+        <item name="android:colorAccent">#FFADC6FF</item>
+        <item name="android:textColorPrimary">#FFE2E2E9</item>
+        <item name="android:textColorSecondary">#FFC4C6D0</item>
+        <item name="android:textColorAlertDialogListItem">#FFE2E2E9</item>
+        <item name="android:colorBackground">#FF282A2F</item>
+        <item name="android:buttonBarButtonStyle">@style/Sa2DialogButton</item>
+    </style>
+    <style name="Sa2DialogButton" parent="android:Widget.Material.Button.Borderless.Colored">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
     </style>
     <style name="PlayTheme" parent="android:Theme.Material.NoActionBar.Fullscreen">
         <item name="android:windowBackground">@android:color/black</item>

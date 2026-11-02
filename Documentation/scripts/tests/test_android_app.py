@@ -154,8 +154,8 @@ def test_the_setup_footer_links_to_releases_and_steam_and_the_app_asks_for_no_in
     manifest still holds no INTERNET permission."""
     java = (ROOT / "host/android/java/com/sa2recomp/app/Sa2SetupActivity.java").read_text()
     assert 'STEAM = "https://store.steampowered.com/app/213610/Sonic_Adventure_2/"' in java
-    assert 'pill("Check for updates", v -> openLink(PROJECT + "/releases"))' in java
-    assert 'pill("Get the game on Steam", v -> openLink(STEAM))' in java
+    assert '"Check for updates", "Opens the releases page", v -> openLink(PROJECT + "/releases"));' in java
+    assert '"Get the game on Steam", "Sonic Adventure 2 on the Steam store", v -> openLink(STEAM));' in java
     assert "android.permission.INTERNET" not in (ROOT / "host/android/AndroidManifest.xml").read_text()
 
 

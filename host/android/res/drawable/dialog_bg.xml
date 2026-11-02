@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The dialogs' surface: Material 3's container-high tone with 28 dp corners, inset from the screen edges. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="16dp" android:insetRight="16dp" android:insetTop="16dp" android:insetBottom="16dp">
+    <shape android:shape="rectangle">
+        <corners android:radius="28dp" />
+        <solid android:color="#FF282A2F" />
+    </shape>
+</inset>

@@ -53,9 +53,7 @@ public class Sa2SettingsActivity extends Activity {
     private int mLong, mShort;
     private boolean mUpdating;
     private final List<Runnable> mRefresh = new ArrayList<>();          // each row's way to show the settings
-    private final Map<String, Ui.Column> mPages = new HashMap<>();       // each area's page, by its title
-    private Ui.Column mOverview;
-    private String mPage;                                                // the page shown; null for the overview
+    private Ui.Pages mPages;                                             // the overview and a page per area
     private View mBackupNow, mExportLatest, mExportPick;
     private TextView mDebugNote;
 
@@ -92,34 +90,10 @@ public class Sa2SettingsActivity extends Activity {
 
     // ------------------------------------------------------------ the screen
 
-    private Ui.Column column() {
-        Ui.Column col = new Ui.Column(this, dp(640));
-        col.setPadding(dp(16), 0, dp(16), dp(40));
-        return col;
-    }
-
-    private Ui.Column page(String title) {
-        Ui.Column col = column();
-        mPages.put(title, col);
-        return col;
-    }
-
-    private void showPage(String title) {
-        mPage = title;
-        Ui.Column col = title == null ? mOverview : mPages.get(title);
-        Ui.detach(col);
-        Ui.screen(this, Ui.topAppBar(this, title == null ? "Game settings" : title, null, v -> back()), col);
-    }
-
-    private void back() {
-        if (mPage != null) showPage(null);
-        else finish();
-    }
-
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
-        back();
+        if (!mPages.back()) super.onBackPressed();
     }
 
     private void section(LinearLayout col, String title) {
@@ -237,8 +211,9 @@ public class Sa2SettingsActivity extends Activity {
     private static final String[] ORIENTATION_NAMES = {"Landscape", "Portrait", "Auto-rotate"};
 
     private void buildUi() {
-        mOverview = column();
-        Ui.Column o = mOverview;
+        Ui.Column o = new Ui.Column(this, dp(640));
+        o.setPadding(dp(16), 0, dp(16), dp(40));
+        mPages = new Ui.Pages(this, "Game settings", o, null);
         TextView intro = Ui.text(this, "Changes apply the next time the game starts.", Ui.BODY_MEDIUM, NOTE);
         intro.setPadding(dp(16), 0, dp(16), 0);
         o.addView(intro, Ui.full(dp(4)));
@@ -248,21 +223,21 @@ public class Sa2SettingsActivity extends Activity {
                                 v -> startActivity(new Intent(this, Sa2TweaksActivity.class)));
         status(tweaks, () -> tweaksOn() == 0 ? "All " + GameSettings.TWEAKS.length + " off"
                                              : tweaksOn() + " of " + GameSettings.TWEAKS.length + " on");
-        Ui.ListRow display = row(areas, Ui.Icon.DISPLAY, "Display", Ui.chevron(this), v -> showPage("Display"));
+        Ui.ListRow display = row(areas, Ui.Icon.DISPLAY, "Display", Ui.chevron(this), v -> mPages.show("Display"));
         status(display, () -> {
             int[] pic = mS.picture(mLong, mShort);
             return ORIENTATION_NAMES[indexOf(ORIENTATIONS, mS.orientation)] + " · "
                    + (pic == null ? GameSettings.CONFIG_W + "x" + GameSettings.CONFIG_H : size(pic));
         });
-        Ui.ListRow touch = row(areas, Ui.Icon.TOUCH, "Touch controls", Ui.chevron(this), v -> showPage("Touch controls"));
+        Ui.ListRow touch = row(areas, Ui.Icon.TOUCH, "Touch controls", Ui.chevron(this), v -> mPages.show("Touch controls"));
         status(touch, () -> "Size " + mS.touchSize + "%, opacity " + mS.touchOpacity + "%");
-        Ui.ListRow pad = row(areas, Ui.Icon.GAMEPAD, "Controller", Ui.chevron(this), v -> showPage("Controller"));
+        Ui.ListRow pad = row(areas, Ui.Icon.GAMEPAD, "Controller", Ui.chevron(this), v -> mPages.show("Controller"));
         status(pad, () -> mS.padMap.isEmpty() ? "Standard buttons" : "Custom buttons");
-        Ui.ListRow sound = row(areas, Ui.Icon.SOUND, "Sound", Ui.chevron(this), v -> showPage("Sound"));
+        Ui.ListRow sound = row(areas, Ui.Icon.SOUND, "Sound", Ui.chevron(this), v -> mPages.show("Sound"));
         status(sound, () -> mS.tweaksOn.contains(GameSettings.VOLUME_LEVELS)
                 ? "Music " + mS.musicVolume + "%, voices " + mS.voiceVolume + "%, effects " + mS.sfxVolume + "%"
                 : "The game's own levels");
-        Ui.ListRow saves = row(areas, Ui.Icon.SAVE, "Saves", Ui.chevron(this), v -> showPage("Saves"));
+        Ui.ListRow saves = row(areas, Ui.Icon.SAVE, "Saves", Ui.chevron(this), v -> mPages.show("Saves"));
         status(saves, () -> {
             int n = SaveTools.backups(SaveTools.backupRoot(this)).size();
             return n == 0 ? "Import, export and back up" : n + (n == 1 ? " backup" : " backups") + " kept";
@@ -276,7 +251,7 @@ public class Sa2SettingsActivity extends Activity {
 
         section(o, "More");
         Ui.Group more = group(o, true);
-        Ui.ListRow debug = row(more, Ui.Icon.CODE, "Debug", Ui.chevron(this), v -> showPage("Debug"));
+        Ui.ListRow debug = row(more, Ui.Icon.CODE, "Debug", Ui.chevron(this), v -> mPages.show("Debug"));
         status(debug, () -> mS.recordSessions ? "Recording sessions" : "Session exports for bug reports");
         Ui.ListRow reset = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.RESET, Ui.ERROR_CONTAINER, Ui.ON_ERROR_CONTAINER),
                 "Reset all settings", "", null, v -> new AlertDialog.Builder(this)
@@ -292,13 +267,13 @@ public class Sa2SettingsActivity extends Activity {
         reset.supporting.setText("Your saves stay");
         reset.supporting.setVisibility(View.VISIBLE);
 
-        buildDisplay(page("Display"));
-        buildTouch(page("Touch controls"));
-        buildController(page("Controller"));
-        buildSound(page("Sound"));
-        buildSaves(page("Saves"));
-        buildDebug(page("Debug"));
-        showPage(null);
+        buildDisplay(mPages.add("Display"));
+        buildTouch(mPages.add("Touch controls"));
+        buildController(mPages.add("Controller"));
+        buildSound(mPages.add("Sound"));
+        buildSaves(mPages.add("Saves"));
+        buildDebug(mPages.add("Debug"));
+        mPages.show(null);
     }
 
     private void buildDisplay(Ui.Column d) {

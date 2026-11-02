@@ -69,10 +69,12 @@ public class Sa2LayoutActivity extends Activity {
         LinearLayout bar = mBar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.VERTICAL);
         bar.setGravity(Gravity.CENTER_HORIZONTAL);
-        TextView hint = mHint = new TextView(this);
-        hint.setText("Drag a control to move it");
-        hint.setTextColor(Color.rgb(0xE8, 0xED, 0xF7));
-        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        android.graphics.drawable.GradientDrawable panel = new android.graphics.drawable.GradientDrawable();
+        panel.setCornerRadius(Ui.dp(this, 28));
+        panel.setColor(Ui.CONTAINER_HIGH);
+        bar.setBackground(panel);
+        bar.setPadding(Ui.dp(this, 16), Ui.dp(this, 16), Ui.dp(this, 16), Ui.dp(this, 16));
+        TextView hint = mHint = Ui.text(this, "Drag a control to move it", Ui.TITLE_MEDIUM, Ui.ON_SURFACE);
         hint.setGravity(Gravity.CENTER_HORIZONTAL);
         bar.addView(hint);
         Button reset = button("Reset", Ui.QUIET, v -> mEditor.reset());
@@ -171,9 +173,6 @@ public class Sa2LayoutActivity extends Activity {
     private Button button(String text, int kind, View.OnClickListener click) {
         Button b = Ui.button(this, text, click);
         Ui.style(b, kind);
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        b.setMinHeight(Ui.dp(this, 44));
-        b.setMinimumHeight(Ui.dp(this, 44));
         return b;
     }
 

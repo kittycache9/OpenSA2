@@ -253,8 +253,8 @@ def test_a_tweak_in_no_group_is_named_and_shown_under_other(java):
 
 
 def test_the_tweaks_screen_is_made_from_the_list_and_settings_opens_it():
-    """The Tweaks screen (Sa2TweaksActivity) makes a row per group from tweakGroups' order that opens in
-    place, a row with a switch and its note for each tweak, a search over labels and notes, each
+    """The Tweaks screen (Sa2TweaksActivity) makes a row per group from tweakGroups' order that opens as
+    its own page, a row with a switch and its note for each tweak, a search over labels and notes, each
     switch found by its tweak's name,
     saved in the preferences like every other setting. Game settings' overview holds one row that
     opens it and says how many are on; no tweak is named on either screen except the Chao boosts."""
@@ -268,12 +268,13 @@ def test_the_tweaks_screen_is_made_from_the_list_and_settings_opens_it():
     assert 'android:name=".Sa2TweaksActivity"' in manifest
     assert "GameSettings.tweakGroups(GameSettings.TWEAK_GROUPS, GameSettings.TWEAKS, problems)" in tweaks
     assert "for (GameSettings.TweakGroup group : groups) {" in tweaks
-    assert "new Ui.ListRow(this, group.heading, \"\", end, v -> toggleGroup(self[0]));" in tweaks
+    assert "new Ui.ListRow(this, Ui.badge(this, icon(group.heading)), group.heading, \"\"," in tweaks
+    assert "v -> mPages.show(group.heading)" in tweaks
     assert "for (GameSettings.Tweak tweak : group.tweaks) {" in tweaks
     assert "Ui.ListRow row = new Ui.ListRow(this, tweak.label, tweak.description, w, v -> w.toggle());" in tweaks
     assert "t.label.toLowerCase(Locale.ROOT).contains(mQuery)" in tweaks and "t.description.toLowerCase(Locale.ROOT).contains(mQuery)" in tweaks
-    assert "mSwitches.put(tweak.name, w);" in tweaks
-    assert "e.getValue().setChecked(mS.tweaksOn.contains(e.getKey()));" in tweaks
+    assert "mSwitches.computeIfAbsent(tweak.name, k -> new ArrayList<>()).add(w);" in tweaks
+    assert "for (Switch w : e.getValue()) w.setChecked(mS.tweaksOn.contains(e.getKey()));" in tweaks
     assert "GameSettings.TWEAKS[" not in tweaks + settings and "TWEAKS.length" in tweaks + settings
     assert "no-event-bars" not in settings + tweaks and "eventBars" not in settings + tweaks + prefs
     assert 'p.getBoolean("tweak_" + t.name, false)' in prefs

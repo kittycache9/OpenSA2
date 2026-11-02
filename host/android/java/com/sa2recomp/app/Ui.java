@@ -30,7 +30,9 @@ import android.widget.Switch;
 import android.widget.TextView;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /** The app's screens' look, built in code after Material 3 (dark scheme from a blue seed): its color
  * roles, type scale, pill buttons, top app bar, grouped lists and switches, a column no wider than a
@@ -231,7 +233,10 @@ final class Ui {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         lp.leftMargin = dp(a, 4);
         bar.addView(t, lp);
-        if (action != null) bar.addView(action);
+        if (action != null) {
+            detach(action);
+            bar.addView(action);
+        }
         return bar;
     }
 
@@ -243,6 +248,47 @@ final class Ui {
         v.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), null, null));
         v.setOnClickListener(click);
         return v;
+    }
+
+    /** A screen of pages: the root (an overview) and pages opened from it in place, each under a top
+     * app bar whose back arrow, like the system's back, returns to the root. */
+    static final class Pages {
+        private final Activity a;
+        private final String rootTitle;
+        private final Column root;
+        private final View rootAction;
+        private final Map<String, Column> pages = new HashMap<>();
+        private String current;
+
+        Pages(Activity a, String rootTitle, Column root, View rootAction) {
+            this.a = a;
+            this.rootTitle = rootTitle;
+            this.root = root;
+            this.rootAction = rootAction;
+        }
+
+        Column add(String title) {
+            Column col = new Column(a, dp(a, 640));
+            col.setPadding(dp(a, 16), 0, dp(a, 16), dp(a, 40));
+            pages.put(title, col);
+            return col;
+        }
+
+        void show(String title) {
+            current = title;
+            Column col = title == null ? root : pages.get(title);
+            detach(col);
+            screen(a, topAppBar(a, title == null ? rootTitle : title, title == null ? rootAction : null, v -> {
+                if (!back()) a.finish();
+            }), col);
+        }
+
+        /** Back to the root from a page; false when the root shows. */
+        boolean back() {
+            if (current == null) return false;
+            show(null);
+            return true;
+        }
     }
 
     /** A section's title above its group, in the primary color, read as a heading by TalkBack. */
@@ -530,7 +576,9 @@ final class Ui {
     /** Line icons on a 24-unit grid, drawn here so the app needs no icon files. */
     static final class Icon extends Drawable {
         static final int BACK = 0, CHEVRON = 1, EXPAND = 2, SEARCH = 3, CLOSE = 4, TUNE = 5, DISPLAY = 6, TOUCH = 7,
-                GAMEPAD = 8, SOUND = 9, SAVE = 10, CODE = 11, PLAY = 12, RESET = 13;
+                GAMEPAD = 8, SOUND = 9, SAVE = 10, CODE = 11, PLAY = 12, RESET = 13, GEAR = 14, ARCHIVE = 15,
+                FOLDER = 16, FLAG = 17, COPY = 18, SHARE = 19, DOWNLOAD = 20, BAG = 21, STAR = 22, BOOK = 23,
+                EGG = 24, CHECK = 25, DOTS = 26, LIST = 27;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final int kind, size;
         private float rotation;
@@ -618,6 +666,93 @@ final class Ui {
                     break;
                 case PLAY:
                     p.moveTo(9 * s, 6.5f * s); p.lineTo(17.5f * s, 12 * s); p.lineTo(9 * s, 17.5f * s); p.close();
+                    break;
+                case GEAR:
+                    p.addCircle(12 * s, 12 * s, 3 * s, Path.Direction.CW);
+                    p.addCircle(12 * s, 12 * s, 6.5f * s, Path.Direction.CW);
+                    for (int i = 0; i < 8; i++) {
+                        double r = Math.PI / 4 * i;
+                        p.moveTo((float) (12 + 6.5 * Math.cos(r)) * s, (float) (12 + 6.5 * Math.sin(r)) * s);
+                        p.lineTo((float) (12 + 9 * Math.cos(r)) * s, (float) (12 + 9 * Math.sin(r)) * s);
+                    }
+                    break;
+                case ARCHIVE:
+                    p.addRoundRect(5 * s, 3.5f * s, 19 * s, 20.5f * s, 2 * s, 2 * s, Path.Direction.CW);
+                    for (int i = 0; i < 4; i++) {
+                        p.moveTo(11 * s, (5.5f + 2 * i) * s); p.lineTo(13 * s, (5.5f + 2 * i) * s);
+                    }
+                    p.addRoundRect(10.5f * s, 14 * s, 13.5f * s, 17.5f * s, 0.8f * s, 0.8f * s, Path.Direction.CW);
+                    break;
+                case FOLDER:
+                    p.moveTo(3.5f * s, 7 * s); p.lineTo(3.5f * s, 18.5f * s); p.lineTo(20.5f * s, 18.5f * s);
+                    p.lineTo(20.5f * s, 8.5f * s); p.lineTo(11.5f * s, 8.5f * s); p.lineTo(9.5f * s, 5.5f * s);
+                    p.lineTo(3.5f * s, 5.5f * s); p.close();
+                    break;
+                case FLAG:
+                    p.moveTo(5.5f * s, 21 * s); p.lineTo(5.5f * s, 4 * s);
+                    p.lineTo(18.5f * s, 4 * s); p.lineTo(15.5f * s, 8.5f * s); p.lineTo(18.5f * s, 13 * s);
+                    p.lineTo(5.5f * s, 13 * s);
+                    break;
+                case COPY:
+                    p.addRoundRect(8.5f * s, 8.5f * s, 19.5f * s, 20.5f * s, 2 * s, 2 * s, Path.Direction.CW);
+                    p.moveTo(15.5f * s, 5.5f * s); p.lineTo(15.5f * s, 4.5f * s); p.lineTo(4.5f * s, 4.5f * s);
+                    p.lineTo(4.5f * s, 16.5f * s); p.lineTo(5.5f * s, 16.5f * s);
+                    break;
+                case SHARE:
+                    p.addCircle(17.5f * s, 6 * s, 2.5f * s, Path.Direction.CW);
+                    p.addCircle(6.5f * s, 12 * s, 2.5f * s, Path.Direction.CW);
+                    p.addCircle(17.5f * s, 18 * s, 2.5f * s, Path.Direction.CW);
+                    p.moveTo(8.7f * s, 10.8f * s); p.lineTo(15.3f * s, 7.2f * s);
+                    p.moveTo(8.7f * s, 13.2f * s); p.lineTo(15.3f * s, 16.8f * s);
+                    break;
+                case DOWNLOAD:
+                    p.moveTo(12 * s, 4 * s); p.lineTo(12 * s, 15 * s);
+                    p.moveTo(7.5f * s, 10.5f * s); p.lineTo(12 * s, 15 * s); p.lineTo(16.5f * s, 10.5f * s);
+                    p.moveTo(5 * s, 19.5f * s); p.lineTo(19 * s, 19.5f * s);
+                    break;
+                case BAG:
+                    p.addRoundRect(4.5f * s, 8 * s, 19.5f * s, 20.5f * s, 2 * s, 2 * s, Path.Direction.CW);
+                    p.addArc(8.5f * s, 3.5f * s, 15.5f * s, 12.5f * s, 180, 180);
+                    break;
+                case STAR:
+                    for (int i = 0; i < 10; i++) {
+                        double r = -Math.PI / 2 + Math.PI / 5 * i, d = i % 2 == 0 ? 8.5 : 3.6;
+                        float x = (float) (12 + d * Math.cos(r)) * s, y = (float) (12.8 + d * Math.sin(r)) * s;
+                        if (i == 0) p.moveTo(x, y);
+                        else p.lineTo(x, y);
+                    }
+                    p.close();
+                    break;
+                case BOOK:
+                    p.moveTo(12 * s, 6.5f * s); p.lineTo(12 * s, 19.5f * s);
+                    p.moveTo(12 * s, 6.5f * s); p.cubicTo(9.5f * s, 4.5f * s, 6 * s, 4.5f * s, 3.5f * s, 5.5f * s);
+                    p.lineTo(3.5f * s, 18.5f * s); p.cubicTo(6 * s, 17.5f * s, 9.5f * s, 17.5f * s, 12 * s, 19.5f * s);
+                    p.cubicTo(14.5f * s, 17.5f * s, 18 * s, 17.5f * s, 20.5f * s, 18.5f * s); p.lineTo(20.5f * s, 5.5f * s);
+                    p.cubicTo(18 * s, 4.5f * s, 14.5f * s, 4.5f * s, 12 * s, 6.5f * s);
+                    break;
+                case EGG:
+                    p.moveTo(12 * s, 3.5f * s);
+                    p.cubicTo(16.5f * s, 3.5f * s, 19 * s, 10.5f * s, 19 * s, 14 * s);
+                    p.cubicTo(19 * s, 18 * s, 16 * s, 20.5f * s, 12 * s, 20.5f * s);
+                    p.cubicTo(8 * s, 20.5f * s, 5 * s, 18 * s, 5 * s, 14 * s);
+                    p.cubicTo(5 * s, 10.5f * s, 7.5f * s, 3.5f * s, 12 * s, 3.5f * s);
+                    break;
+                case CHECK:
+                    p.addCircle(12 * s, 12 * s, 8.5f * s, Path.Direction.CW);
+                    p.moveTo(8 * s, 12.2f * s); p.lineTo(10.8f * s, 15 * s); p.lineTo(16 * s, 9.5f * s);
+                    break;
+                case DOTS:
+                    p.addCircle(6 * s, 12 * s, 1.2f * s, Path.Direction.CW);
+                    p.addCircle(12 * s, 12 * s, 1.2f * s, Path.Direction.CW);
+                    p.addCircle(18 * s, 12 * s, 1.2f * s, Path.Direction.CW);
+                    break;
+                case LIST:
+                    p.moveTo(9 * s, 7 * s); p.lineTo(20 * s, 7 * s);
+                    p.moveTo(9 * s, 12 * s); p.lineTo(20 * s, 12 * s);
+                    p.moveTo(9 * s, 17 * s); p.lineTo(20 * s, 17 * s);
+                    p.addCircle(5 * s, 7 * s, 0.8f * s, Path.Direction.CW);
+                    p.addCircle(5 * s, 12 * s, 0.8f * s, Path.Direction.CW);
+                    p.addCircle(5 * s, 17 * s, 0.8f * s, Path.Direction.CW);
                     break;
                 default:
                     p.addArc(5 * s, 5 * s, 19 * s, 19 * s, -60, 300);
