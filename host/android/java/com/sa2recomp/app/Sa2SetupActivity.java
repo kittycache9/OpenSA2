@@ -106,6 +106,7 @@ public class Sa2SetupActivity extends Activity {
     private Button mZip, mCheck, mPlay, mChao;   // the big buttons
     private Ui.ListRow mSettings, mZipRow, mCheckRow, mGithub, mCopy, mSummary, mShare;
     private TextView mChaoNote;
+    private Ui.ListRow mTweaksCard;      // the Tweaks feature card under Play and Chao World
     private final List<String> mInstallOut = new ArrayList<>();      // the last installer run's lines
     private String mInstallVerdict;      // InstallVerdict's account of the last refused run; null otherwise
     private int mWaitedForPlay;          // 2 s checks spent waiting for a closing play process
@@ -807,7 +808,8 @@ public class Sa2SetupActivity extends Activity {
      * again. Not installed: Choose game ZIP on its own, then the folder check and the settings. */
     private void layoutActions(boolean installed) {
         mActions.removeAllViews();
-        for (View v : new View[] {mPlay, mChao, mChaoNote, mZip, mCheck, mSettings.view, mZipRow.view, mCheckRow.view})
+        for (View v : new View[] {mPlay, mChao, mChaoNote, mTweaksCard.view, mZip, mCheck, mSettings.view, mZipRow.view,
+                                  mCheckRow.view})
             Ui.detach(v);
         Ui.Group more = new Ui.Group(this, true);
         if (installed) {
@@ -816,6 +818,8 @@ public class Sa2SetupActivity extends Activity {
             mActions.addView(mPlay, Ui.full(0));
             mActions.addView(mChao, Ui.full(dp(12)));
             mActions.addView(mChaoNote, Ui.full(dp(8)));
+            updateTweaksCard();
+            mActions.addView(mTweaksCard.view, Ui.full(dp(24)));
             more.add(mSettings.view);
             more.add(mZipRow.view);
             more.add(mCheckRow.view);
@@ -833,6 +837,23 @@ public class Sa2SetupActivity extends Activity {
         mCheck.setEnabled(!mBusy);
         mPlay.setEnabled(!mBusy);
         mChao.setEnabled(!mBusy);
+    }
+
+    /** The Tweaks card: an invitation while every tweak is off, then how many are on. */
+    private void updateTweaksCard() {
+        GameSettings s = GameSettings.load(this);
+        int total = GameSettings.TWEAKS.length, on = 0;
+        for (GameSettings.Tweak t : GameSettings.TWEAKS) if (s.tweaksOn.contains(t.name)) on++;
+        if (on == 0) {
+            mTweaksCard.headline.setText("Make the game your own");
+            mTweaksCard.supporting.setText("Try tweaks: skip the intro, infinite lives, all upgrades and " + (total - 3)
+                                           + " more. Each one is off until you turn it on.");
+        } else {
+            mTweaksCard.headline.setText("Tweaks");
+            mTweaksCard.supporting.setText(on + " of " + total + " on. Tap to change them.");
+        }
+        mTweaksCard.view.setContentDescription(mTweaksCard.headline.getText() + ". " + mTweaksCard.supporting.getText()
+                                               + " Opens Tweaks.");
     }
 
     /** The card above the buttons for something the player must act on (a crash, a refused install),
@@ -956,6 +977,17 @@ public class Sa2SetupActivity extends Activity {
         mChaoNote.setGravity(Gravity.CENTER_HORIZONTAL);
         mSettings = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.GEAR), "Game settings",
                 "Display, controls, tweaks and more", Ui.chevron(this), v -> openSettings());
+        mTweaksCard = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.TUNE, Ui.PRIMARY_COLOR, Ui.ON_PRIMARY), "", "",
+                Ui.chevron(this), v -> startActivity(new Intent(this, Sa2TweaksActivity.class)));
+        GradientDrawable promo = new GradientDrawable();
+        promo.setCornerRadius(dp(24));
+        promo.setColor(Ui.PRIMARY_CONTAINER);
+        mTweaksCard.view.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), promo, null));
+        mTweaksCard.view.setPadding(dp(16), dp(18), dp(16), dp(18));
+        Ui.type(mTweaksCard.headline, Ui.TITLE_MEDIUM);
+        mTweaksCard.headline.setTextColor(Ui.ON_PRIMARY_CONTAINER);
+        mTweaksCard.supporting.setTextColor(0xD9D8E2FF);
+        mTweaksCard.supporting.setVisibility(View.VISIBLE);
         mZipRow = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.ARCHIVE), "Reinstall from ZIP",
                 "Copies the game in again from a ZIP", null, v -> pickZip());
         mCheckRow = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.FOLDER), "Reinstall from folder",

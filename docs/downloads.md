@@ -171,7 +171,7 @@ Tweaks are optional changes to how the game looks or plays. Each one is off unti
 
 With `no-event-bars` on, every in-engine cutscene loses its bars, and the scenes stay as the game made them. Four cutscenes were made for 4:3: the opening one (event 361, which the game also plays when it asks for event 360) and events 21, 205, and 206. These can show an effect or picture that stops short of the sides of the screen, with black beyond it. The opening draws its title cards, flashes, backdrops, and logo glow over the middle 4:3 part of the picture only, so on a wide screen those effects end at a hard edge where a bar was. In event 21, the map of the space colony does not reach the sides of the screen, so black strips stay at the far left and right. Movies keep their bars, because the video itself is 4:3.
 
-On Android, open **Tweaks** from **Game settings**. It groups the tweaks under Gameplay and assists, Story and presentation, Controls, Audio, Chao, Fixes, and Other. Tap a group to open it, or search by name or description. Tap a tweak's description to read all of it. On Windows and Linux, add a line to the release's `share/game.env` file:
+On Android, tap the **Tweaks** card on the setup screen, under **Play** and **Chao World**, or open **Tweaks** from **Game settings**. It groups the tweaks under Gameplay and assists, Story and presentation, Controls, Audio, Chao, Fixes, and Other. Tap a group to open it, or search by name or description. Tap a tweak's description to read all of it. On Windows and Linux, add a line to the release's `share/game.env` file:
 
 ```
 SA2_TWEAKS=no-event-bars
