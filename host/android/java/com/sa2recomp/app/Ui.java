@@ -29,6 +29,9 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /** The app's screens' look, built in code after Material 3 (dark scheme from a blue seed): its color
  * roles, type scale, pill buttons, top app bar, grouped lists and switches, a column no wider than a
  * phone held upright, and the system bars' insets as padding. */
@@ -211,12 +214,16 @@ final class Ui {
 
     /** A small top app bar: the back arrow, the title, and an optional action at the end. */
     static LinearLayout topAppBar(Activity a, String title, View action) {
+        return topAppBar(a, title, action, v -> a.finish());
+    }
+
+    static LinearLayout topAppBar(Activity a, String title, View action, View.OnClickListener onBack) {
         LinearLayout bar = new LinearLayout(a);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setMinimumHeight(dp(a, 64));
         bar.setPadding(dp(a, 4), 0, dp(a, 8), 0);
-        ImageView back = iconButton(a, Icon.BACK, ON_SURFACE, "Back", v -> a.finish());
+        ImageView back = iconButton(a, Icon.BACK, ON_SURFACE, "Back", onBack);
         bar.addView(back, new LinearLayout.LayoutParams(dp(a, 48), dp(a, 48)));
         TextView t = text(a, title, TITLE_LARGE, ON_SURFACE);
         t.setSingleLine(true);
@@ -316,8 +323,14 @@ final class Ui {
     static final class ListRow {
         final LinearLayout view;
         final TextView headline, supporting;
+        final View end;
 
         ListRow(Context c, String headline, String supporting, View end, View.OnClickListener click) {
+            this(c, null, headline, supporting, end, click);
+        }
+
+        ListRow(Context c, View start, String headline, String supporting, View end, View.OnClickListener click) {
+            this.end = end;
             view = new LinearLayout(c);
             view.setOrientation(LinearLayout.HORIZONTAL);
             view.setGravity(Gravity.CENTER_VERTICAL);
@@ -327,6 +340,11 @@ final class Ui {
                 view.setBackground(new RippleDrawable(ColorStateList.valueOf(0x1FFFFFFF), null,
                                                       new android.graphics.drawable.ColorDrawable(Color.WHITE)));
                 view.setOnClickListener(click);
+            }
+            if (start != null) {
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40));
+                lp.rightMargin = dp(c, 16);
+                view.addView(start, lp);
             }
             LinearLayout texts = new LinearLayout(c);
             texts.setOrientation(LinearLayout.VERTICAL);
@@ -346,6 +364,7 @@ final class Ui {
 
         void setEnabled(boolean on) {
             view.setEnabled(on);
+            if (end != null) end.setEnabled(on);
             view.setAlpha(on ? 1f : 0.38f);
         }
     }
@@ -375,6 +394,97 @@ final class Ui {
         chev.setBounds(0, 0, chev.getIntrinsicWidth(), chev.getIntrinsicHeight());
         b.setCompoundDrawablesRelative(null, null, chev, null);
         b.setCompoundDrawablePadding(dp(b.getContext(), 16));
+    }
+
+    /** A row's leading icon in a tonal circle (40 dp). */
+    static View badge(Context c, int icon, int fill, int color) {
+        ImageView v = new ImageView(c);
+        v.setImageDrawable(new Icon(c, icon, color));
+        v.setScaleType(ImageView.ScaleType.CENTER);
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(fill);
+        v.setBackground(circle);
+        v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return v;
+    }
+
+    static View badge(Context c, int icon) {
+        return badge(c, icon, SECONDARY_CONTAINER, ON_SECONDARY_CONTAINER);
+    }
+
+    /** A rounded group of rows with a hairline between each two shown rows, inset to where the
+     * rows' text starts (72 dp after a leading icon, else 16 dp). */
+    static final class Group {
+        final LinearLayout view;
+        private final Context c;
+        private final List<View> rows = new ArrayList<>();
+        private final List<View> lines = new ArrayList<>();
+        private final int inset;
+
+        Group(Context c, boolean icons) {
+            this.c = c;
+            view = group(c);
+            inset = dp(c, icons ? 72 : 16);
+        }
+
+        <T extends View> T add(T row) {
+            View line = divider(c);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1);
+            lp.leftMargin = inset;
+            if (!rows.isEmpty()) view.addView(line, lp);
+            lines.add(line);
+            rows.add(row);
+            view.addView(row, full(0));
+            return row;
+        }
+
+        /** Shows or hides a row, and keeps a hairline only between rows that show. */
+        void show(View row, boolean shown) {
+            row.setVisibility(shown ? View.VISIBLE : View.GONE);
+            boolean above = false;
+            for (int i = 0; i < rows.size(); i++) {
+                boolean on = rows.get(i).getVisibility() == View.VISIBLE;
+                lines.get(i).setVisibility(on && above ? View.VISIBLE : View.GONE);
+                above |= on;
+            }
+        }
+    }
+
+    /** Small print under a group: the longer explanation that does not belong in a row. */
+    static TextView footnote(Context c, String s) {
+        TextView t = text(c, s, BODY_SMALL, ON_SURFACE_VARIANT);
+        t.setPadding(dp(c, 16), 0, dp(c, 16), 0);
+        return t;
+    }
+
+    /** A slider row: its name and value on one line, the slider under them. */
+    static final class SliderRow {
+        final LinearLayout view;
+        final TextView title, value;
+        final android.widget.SeekBar bar;
+
+        SliderRow(Context c, String name) {
+            view = new LinearLayout(c);
+            view.setOrientation(LinearLayout.VERTICAL);
+            view.setPadding(dp(c, 16), dp(c, 14), dp(c, 16), dp(c, 6));
+            LinearLayout top = new LinearLayout(c);
+            top.setOrientation(LinearLayout.HORIZONTAL);
+            top.setGravity(Gravity.CENTER_VERTICAL);
+            title = text(c, name, BODY_LARGE, ON_SURFACE);
+            top.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            value = text(c, "", LABEL_LARGE, PRIMARY_COLOR);
+            top.addView(value);
+            view.addView(top, full(0));
+            bar = new android.widget.SeekBar(c);
+            bar.setId(View.generateViewId());
+            title.setLabelFor(bar.getId());
+            bar.setProgressTintList(ColorStateList.valueOf(PRIMARY_COLOR));
+            bar.setProgressBackgroundTintList(ColorStateList.valueOf(SECONDARY_CONTAINER));
+            bar.setThumbTintList(ColorStateList.valueOf(PRIMARY_COLOR));
+            bar.setPadding(dp(c, 4), dp(c, 12), dp(c, 4), dp(c, 12));
+            view.addView(bar, full(dp(c, 4)));
+        }
     }
 
     static ImageView chevron(Context c) {
@@ -419,7 +529,8 @@ final class Ui {
 
     /** Line icons on a 24-unit grid, drawn here so the app needs no icon files. */
     static final class Icon extends Drawable {
-        static final int BACK = 0, CHEVRON = 1, EXPAND = 2, SEARCH = 3, CLOSE = 4;
+        static final int BACK = 0, CHEVRON = 1, EXPAND = 2, SEARCH = 3, CLOSE = 4, TUNE = 5, DISPLAY = 6, TOUCH = 7,
+                GAMEPAD = 8, SOUND = 9, SAVE = 10, CODE = 11, PLAY = 12, RESET = 13;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final int kind, size;
         private float rotation;
@@ -462,9 +573,55 @@ final class Ui {
                     p.addCircle(10.5f * s, 10.5f * s, 6 * s, Path.Direction.CW);
                     p.moveTo(15 * s, 15 * s); p.lineTo(20 * s, 20 * s);
                     break;
-                default:
+                case CLOSE:
                     p.moveTo(6.5f * s, 6.5f * s); p.lineTo(17.5f * s, 17.5f * s);
                     p.moveTo(17.5f * s, 6.5f * s); p.lineTo(6.5f * s, 17.5f * s);
+                    break;
+                case TUNE:
+                    p.moveTo(4 * s, 7 * s); p.lineTo(20 * s, 7 * s);
+                    p.moveTo(4 * s, 12 * s); p.lineTo(20 * s, 12 * s);
+                    p.moveTo(4 * s, 17 * s); p.lineTo(20 * s, 17 * s);
+                    p.addCircle(15 * s, 7 * s, 2 * s, Path.Direction.CW);
+                    p.addCircle(9 * s, 12 * s, 2 * s, Path.Direction.CW);
+                    p.addCircle(13 * s, 17 * s, 2 * s, Path.Direction.CW);
+                    break;
+                case DISPLAY:
+                    p.addRoundRect(3.5f * s, 5 * s, 20.5f * s, 16 * s, 1.5f * s, 1.5f * s, Path.Direction.CW);
+                    p.moveTo(12 * s, 16 * s); p.lineTo(12 * s, 19.5f * s);
+                    p.moveTo(8.5f * s, 19.5f * s); p.lineTo(15.5f * s, 19.5f * s);
+                    break;
+                case TOUCH:
+                    p.addCircle(12 * s, 12 * s, 2.5f * s, Path.Direction.CW);
+                    p.addCircle(12 * s, 12 * s, 7 * s, Path.Direction.CW);
+                    break;
+                case GAMEPAD:
+                    p.addRoundRect(2.5f * s, 7 * s, 21.5f * s, 17 * s, 5 * s, 5 * s, Path.Direction.CW);
+                    p.moveTo(6 * s, 12 * s); p.lineTo(10 * s, 12 * s);
+                    p.moveTo(8 * s, 10 * s); p.lineTo(8 * s, 14 * s);
+                    p.addCircle(15.5f * s, 11 * s, 0.6f * s, Path.Direction.CW);
+                    p.addCircle(17.5f * s, 13 * s, 0.6f * s, Path.Direction.CW);
+                    break;
+                case SOUND:
+                    p.moveTo(4 * s, 9.5f * s); p.lineTo(7.5f * s, 9.5f * s); p.lineTo(12 * s, 5.5f * s);
+                    p.lineTo(12 * s, 18.5f * s); p.lineTo(7.5f * s, 14.5f * s); p.lineTo(4 * s, 14.5f * s); p.close();
+                    p.addArc(11 * s, 8.5f * s, 18 * s, 15.5f * s, -50, 100);
+                    p.addArc(10 * s, 5 * s, 21 * s, 19 * s, -50, 100);
+                    break;
+                case SAVE:
+                    p.addRoundRect(4 * s, 4 * s, 20 * s, 20 * s, 2 * s, 2 * s, Path.Direction.CW);
+                    p.moveTo(8 * s, 4 * s); p.lineTo(8 * s, 9 * s); p.lineTo(15 * s, 9 * s); p.lineTo(15 * s, 4 * s);
+                    p.addCircle(12 * s, 14.5f * s, 2.5f * s, Path.Direction.CW);
+                    break;
+                case CODE:
+                    p.moveTo(9 * s, 7 * s); p.lineTo(4 * s, 12 * s); p.lineTo(9 * s, 17 * s);
+                    p.moveTo(15 * s, 7 * s); p.lineTo(20 * s, 12 * s); p.lineTo(15 * s, 17 * s);
+                    break;
+                case PLAY:
+                    p.moveTo(9 * s, 6.5f * s); p.lineTo(17.5f * s, 12 * s); p.lineTo(9 * s, 17.5f * s); p.close();
+                    break;
+                default:
+                    p.addArc(5 * s, 5 * s, 19 * s, 19 * s, -60, 300);
+                    p.moveTo(15.5f * s, 3.5f * s); p.lineTo(15.5f * s, 6.5f * s); p.lineTo(18.5f * s, 6.5f * s);
             }
             canvas.drawPath(p, paint);
             canvas.restore();

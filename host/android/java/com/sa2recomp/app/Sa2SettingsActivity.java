@@ -33,37 +33,31 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * The game settings screen, opened from the setup screen: the orientation (landscape, portrait or
- * auto-rotate), the full-width picture, the HUD at 4:3, the picture's aspect and resolution, the
- * touch controls' size, opacity and places (Sa2LayoutActivity), what each touch or controller
- * button sends, and the tweaks (changes to the game's own behaviour, none made by default: a
- * switch for each line of GameSettings.TWEAKS, under GameSettings.TWEAK_GROUPS's headings). Each
- * change is saved at once (GameSettings) and applies from the next session.
- * Every setting starts at today's behaviour, and "Reset all" puts them back.
+ * Game settings, opened from the setup screen. An overview lists the areas, each with its current
+ * value: Tweaks (Sa2TweaksActivity), Display, Touch controls, Controller, Sound and Saves, then the
+ * start-up switch, Debug and Reset all. Each area opens in place as its own page with a back arrow.
+ * One-of-many choices open a dialog, ranges are sliders, and on/off settings are switch rows. Each
+ * row says how it shows the settings (mRefresh), so update() is one pass over them. Each change is
+ * saved at once (GameSettings) and applies from the next session; every setting starts at today's
+ * behaviour, and Reset all puts them back.
  *
- * The Saves card imports, exports, backs up and restores the game's saves (SaveTools). It changes
- * no setting, and "Reset all" leaves the saves alone.
- *
- * The Debug section is last: Debug Export zips the latest play session, or one picked from the
- * sessions the app keeps, with every log and the start and end saves (DebugExport), and opens the
- * share sheet with it. Later debug rows go in debugRows.
+ * Saves imports, exports, backs up and restores the game's saves (SaveTools); it changes no setting,
+ * and Reset all leaves the saves alone. Debug's Debug Export zips the latest play session, or one
+ * picked from the sessions the app keeps, with every log and the start and end saves (DebugExport),
+ * and opens the share sheet with it.
  */
 public class Sa2SettingsActivity extends Activity {
-    private static final int TEXT = Ui.ON_SURFACE, NOTE = Ui.ON_SURFACE_VARIANT;
+    private static final int NOTE = Ui.ON_SURFACE_VARIANT;
 
     private GameSettings mS;
     private int mLong, mShort;
-    private Button[] mOrientation, mAspect;
-    private Switch mWidescreen, mHud, mRecord, mAutoPlay;
-    private Button mTweaksEntry, mBackupNow;   // the row that opens the Tweaks screen; Back up saves now
-    private Button mResolution, mLayoutLandscape, mLayoutPortrait;
-    private TextView mOrientationNote, mPictureNote, mSizeLabel, mOpacityLabel, mPlaceLabel, mPlaceNote;
-    private SeekBar mSize, mOpacity, mPlace, mMusic, mVoice, mSfx;
-    private TextView mMusicLabel, mVoiceLabel, mSfxLabel;
     private boolean mUpdating;
-    private Button[] mFrameskip;
+    private final List<Runnable> mRefresh = new ArrayList<>();          // each row's way to show the settings
+    private final Map<String, Ui.Column> mPages = new HashMap<>();       // each area's page, by its title
+    private Ui.Column mOverview;
+    private String mPage;                                                // the page shown; null for the overview
+    private View mBackupNow, mExportLatest, mExportPick;
     private TextView mDebugNote;
-    private Button mExportLatest, mExportPick;
 
     private static final String[] ORIENTATIONS = {GameSettings.LANDSCAPE, GameSettings.PORTRAIT, GameSettings.AUTO};
 
@@ -98,99 +92,120 @@ public class Sa2SettingsActivity extends Activity {
 
     // ------------------------------------------------------------ the screen
 
-    private TextView text(String s, int sp, int color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        t.setTextColor(color);
-        if (bold) t.setTypeface(Ui.medium());
+    private Ui.Column column() {
+        Ui.Column col = new Ui.Column(this, dp(640));
+        col.setPadding(dp(16), 0, dp(16), dp(40));
+        return col;
+    }
+
+    private Ui.Column page(String title) {
+        Ui.Column col = column();
+        mPages.put(title, col);
+        return col;
+    }
+
+    private void showPage(String title) {
+        mPage = title;
+        Ui.Column col = title == null ? mOverview : mPages.get(title);
+        Ui.detach(col);
+        Ui.screen(this, Ui.topAppBar(this, title == null ? "Game settings" : title, null, v -> back()), col);
+    }
+
+    private void back() {
+        if (mPage != null) showPage(null);
+        else finish();
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    public void onBackPressed() {
+        back();
+    }
+
+    private void section(LinearLayout col, String title) {
+        col.addView(Ui.heading(this, title), Ui.full(dp(28)));
+    }
+
+    private Ui.Group group(LinearLayout col, boolean icons) {
+        Ui.Group g = new Ui.Group(this, icons);
+        col.addView(g.view, Ui.full(dp(12)));
+        return g;
+    }
+
+    private TextView footnote(LinearLayout col, String s) {
+        TextView t = Ui.footnote(this, s);
+        col.addView(t, Ui.full(dp(10)));
         return t;
     }
 
-    /** A section's title: a card's, or a group's inside a card. TalkBack can move from one to the next. */
-    private TextView heading(String title) {
-        return Ui.heading(this, title);
-    }
-
-    /** A rounded card holding one section's rows. */
-    private LinearLayout card(LinearLayout col, String title) {
-        col.addView(heading(title), Ui.full(dp(28)));
-        LinearLayout c = Ui.card(this);
-        col.addView(c, Ui.full(dp(8)));
-        return c;
-    }
-
-    private void label(LinearLayout c, String s, boolean first) {
-        c.addView(Ui.text(this, s, Ui.TITLE_MEDIUM, TEXT), Ui.full(dp(first ? 8 : 20)));
-    }
-
-    private TextView note(LinearLayout c, String s) {
-        TextView t = Ui.text(this, s, Ui.BODY_MEDIUM, NOTE);
-        c.addView(t, Ui.full(dp(4)));
-        return t;
-    }
-
-    /** Choices side by side, the chosen one filled. */
-    private Button[] segments(LinearLayout c, String[] labels, View.OnClickListener[] clicks) {
-        Button[] bs = new Button[labels.length];
-        for (int i = 0; i < labels.length; i++) {
-            bs[i] = Ui.button(this, labels[i], clicks[i]);
-            Ui.style(bs[i], Ui.QUIET);
-            bs[i].setMinWidth(0);
-            bs[i].setMinimumWidth(0);
-        }
-        c.addView(Ui.row(this, bs), Ui.full(dp(8)));
-        return bs;
-    }
-
-    /** The chosen one filled, and said to be selected (TalkBack reads the state, not the colour). */
-    private static void choose(Button[] bs, int chosen) {
-        for (int i = 0; i < bs.length; i++) {
-            Button b = bs[i];
-            Ui.style(b, i == chosen ? Ui.SECONDARY : Ui.QUIET);
-            b.setPadding(Ui.dp(b.getContext(), 8), 0, Ui.dp(b.getContext(), 8), 0);
-            b.setSelected(i == chosen);
-            if (Build.VERSION.SDK_INT >= 30) b.setStateDescription(i == chosen ? "Selected" : null);
-            else b.setContentDescription(b.getText() + (i == chosen ? ", selected" : ""));
-        }
-    }
-
-    private Switch toggle(LinearLayout c, String s, CompoundButton.OnCheckedChangeListener change) {
-        Switch w = Ui.switchStyle(this, s);
-        w.setOnCheckedChangeListener((b, on) -> {
-            if (!mUpdating) change.onCheckedChanged(b, on);
+    /** Keeps a row's supporting text the settings' current value. */
+    private void status(Ui.ListRow r, java.util.function.Supplier<String> text) {
+        mRefresh.add(() -> {
+            String t = text.get();
+            r.supporting.setText(t);
+            r.supporting.setVisibility(t.isEmpty() ? View.GONE : View.VISIBLE);
         });
-        c.addView(w, Ui.full(dp(8)));
-        return w;
     }
 
-    /** A Sound slider moved: the levels apply through volume-levels, so it goes on with them. */
-    private void volumeChanged() {
-        mS.tweaksOn.add(GameSettings.VOLUME_LEVELS);
-        save();
+    /** A row: an optional icon, its title, an optional view at the end (a chevron for a row that opens a
+     * page, another screen or a picker). */
+    private Ui.ListRow row(Ui.Group g, int icon, String title, View end, View.OnClickListener click) {
+        Ui.ListRow r = new Ui.ListRow(this, icon < 0 ? null : Ui.badge(this, icon), title, "", end, click);
+        g.add(r.view);
+        return r;
     }
 
-    /** A Sound slider and its label at `percent` (0 to 100 in steps of 5). */
-    private static void volumeRow(SeekBar b, TextView label, String name, int percent) {
-        label.setText(String.format(Locale.US, "%s: %d%%", name, percent));
-        b.setProgress(percent / 5);
-        describe(b, label, percent + "%");
+    /** A row that does something at once (no chevron). */
+    private Ui.ListRow action(Ui.Group g, String title, String supporting, View.OnClickListener click) {
+        Ui.ListRow r = row(g, -1, title, null, click);
+        r.supporting.setText(supporting);
+        r.supporting.setVisibility(View.VISIBLE);
+        return r;
     }
 
-    /** A slider from lo to hi percent in steps of `step`, named by `label`. */
-    private SeekBar slider(LinearLayout c, TextView label, int lo, int hi, int step,
-                           java.util.function.IntConsumer change) {
-        SeekBar b = new SeekBar(this);
-        b.setId(View.generateViewId());
-        label.setLabelFor(b.getId());
-        b.setMax((hi - lo) / step);
-        b.setProgressTintList(ColorStateList.valueOf(Ui.PRIMARY_COLOR));
-        b.setProgressBackgroundTintList(ColorStateList.valueOf(Ui.SECONDARY_CONTAINER));
-        b.setThumbTintList(ColorStateList.valueOf(Ui.PRIMARY_COLOR));
-        b.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+    /** One of a few choices: the row shows the current one and opens a dialog of all of them. */
+    private Ui.ListRow choice(Ui.Group g, String title, String[] labels, java.util.function.IntSupplier current,
+                              java.util.function.IntConsumer pick) {
+        Ui.ListRow r = row(g, -1, title, null, v -> new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setSingleChoiceItems(labels, current.getAsInt(), (dlg, which) -> {
+                    pick.accept(which);
+                    save();
+                    dlg.dismiss();
+                })
+                .setNegativeButton("Cancel", null)
+                .show());
+        status(r, () -> labels[current.getAsInt()]);
+        return r;
+    }
+
+    /** An on/off setting: the row and its switch are one control. */
+    private Ui.ListRow switchRow(Ui.Group g, int icon, String title, java.util.function.Supplier<String> supporting,
+                                 java.util.function.BooleanSupplier get, java.util.function.Consumer<Boolean> set) {
+        Switch w = Ui.switchStyle(this, "");
+        w.setContentDescription(title);
+        w.setOnCheckedChangeListener((b, on) -> {
+            if (mUpdating) return;
+            set.accept(on);
+            save();
+        });
+        Ui.ListRow r = row(g, icon, title, w, v -> w.toggle());
+        mRefresh.add(() -> w.setChecked(get.getAsBoolean()));
+        if (supporting != null) status(r, supporting);
+        return r;
+    }
+
+    /** A range from lo to hi in steps of `step`; `format` names a value (TalkBack reads it too). */
+    private Ui.SliderRow slider(Ui.Group g, String title, int lo, int hi, int step, java.util.function.IntSupplier get,
+                                java.util.function.IntConsumer set, java.util.function.IntFunction<String> format) {
+        Ui.SliderRow r = new Ui.SliderRow(this, title);
+        r.bar.setMax((hi - lo) / step);
+        r.bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar s, int p, boolean user) {
-                if (user && !mUpdating) change.accept(lo + step * p);
+                if (!user || mUpdating) return;
+                set.accept(lo + step * p);
+                save();
             }
 
             @Override
@@ -199,183 +214,206 @@ public class Sa2SettingsActivity extends Activity {
             @Override
             public void onStopTrackingTouch(SeekBar s) {}
         });
-        c.addView(b, Ui.full(dp(4)));
-        return b;
+        g.add(r.view);
+        mRefresh.add(() -> {
+            int v = get.getAsInt();
+            r.value.setText(format.apply(v));
+            r.bar.setProgress((v - lo) / step);
+            describe(r.bar, r.title, format.apply(v));
+        });
+        return r;
     }
 
-    private Button action(LinearLayout c, String s, View.OnClickListener click) {
-        Button b = Ui.button(this, s, click);
-        Ui.listButton(b);
-        c.addView(b, Ui.full(dp(4)));
-        return b;
+    private static String capital(String s) {
+        return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
+
+    private int tweaksOn() {
+        int on = 0;
+        for (GameSettings.Tweak t : GameSettings.TWEAKS) if (mS.tweaksOn.contains(t.name)) on++;
+        return on;
+    }
+
+    private static final String[] ORIENTATION_NAMES = {"Landscape", "Portrait", "Auto-rotate"};
 
     private void buildUi() {
-        LinearLayout bar = Ui.topAppBar(this, "Game settings", null);
-        int pad = dp(16);
-        Ui.Column col = new Ui.Column(this, dp(640));
-        col.setPadding(pad, 0, pad, dp(32));
+        mOverview = column();
+        Ui.Column o = mOverview;
         TextView intro = Ui.text(this, "Changes apply the next time the game starts.", Ui.BODY_MEDIUM, NOTE);
-        intro.setPadding(dp(4), 0, dp(4), 0);
-        col.addView(intro, Ui.full(dp(4)));
+        intro.setPadding(dp(16), 0, dp(16), 0);
+        o.addView(intro, Ui.full(dp(4)));
 
-        // Starting
-        LinearLayout st = card(col, "Starting the game");
-        mAutoPlay = toggle(st, "Start the game when the app opens", (b, on) -> {
-            mS.autoPlay = on;
-            save();
+        Ui.Group areas = group(o, true);
+        Ui.ListRow tweaks = row(areas, Ui.Icon.TUNE, "Tweaks", Ui.chevron(this),
+                                v -> startActivity(new Intent(this, Sa2TweaksActivity.class)));
+        status(tweaks, () -> tweaksOn() == 0 ? "All " + GameSettings.TWEAKS.length + " off"
+                                             : tweaksOn() + " of " + GameSettings.TWEAKS.length + " on");
+        Ui.ListRow display = row(areas, Ui.Icon.DISPLAY, "Display", Ui.chevron(this), v -> showPage("Display"));
+        status(display, () -> {
+            int[] pic = mS.picture(mLong, mShort);
+            return ORIENTATION_NAMES[indexOf(ORIENTATIONS, mS.orientation)] + " · "
+                   + (pic == null ? GameSettings.CONFIG_W + "x" + GameSettings.CONFIG_H : size(pic));
         });
-        note(st, "Off: the app opens to its own screen and you tap Play. On: the game starts at once when the "
-                + "app opens, and when an install finishes.");
+        Ui.ListRow touch = row(areas, Ui.Icon.TOUCH, "Touch controls", Ui.chevron(this), v -> showPage("Touch controls"));
+        status(touch, () -> "Size " + mS.touchSize + "%, opacity " + mS.touchOpacity + "%");
+        Ui.ListRow pad = row(areas, Ui.Icon.GAMEPAD, "Controller", Ui.chevron(this), v -> showPage("Controller"));
+        status(pad, () -> mS.padMap.isEmpty() ? "Standard buttons" : "Custom buttons");
+        Ui.ListRow sound = row(areas, Ui.Icon.SOUND, "Sound", Ui.chevron(this), v -> showPage("Sound"));
+        status(sound, () -> mS.tweaksOn.contains(GameSettings.VOLUME_LEVELS)
+                ? "Music " + mS.musicVolume + "%, voices " + mS.voiceVolume + "%, effects " + mS.sfxVolume + "%"
+                : "The game's own levels");
+        Ui.ListRow saves = row(areas, Ui.Icon.SAVE, "Saves", Ui.chevron(this), v -> showPage("Saves"));
+        status(saves, () -> {
+            int n = SaveTools.backups(SaveTools.backupRoot(this)).size();
+            return n == 0 ? "Import, export and back up" : n + (n == 1 ? " backup" : " backups") + " kept";
+        });
 
-        // Display
-        LinearLayout d = card(col, "Display");
-        label(d, "Orientation", true);
-        View.OnClickListener[] oc = new View.OnClickListener[3];
-        for (int i = 0; i < 3; i++) {
-            final String o = ORIENTATIONS[i];
-            oc[i] = v -> {
-                mS.orientation = o;
-                save();
-            };
-        }
-        mOrientation = segments(d, new String[] {"Landscape", "Portrait", "Auto-rotate"}, oc);
-        mOrientationNote = note(d, "");
-        mPlaceLabel = text("", 15, TEXT, true);
-        d.addView(mPlaceLabel, Ui.full(dp(16)));
-        mPlace = slider(d, mPlaceLabel, 0, 50, 5, v -> {
-            mS.pictureY = v;
-            save();
-        });
-        mPlaceNote = note(d, "Where the picture sits when the phone is upright. Higher leaves more room for the "
-                             + "touch controls below it.");
-        mWidescreen = toggle(d, "Full-width picture", (b, on) -> {
-            mS.widescreen = on;
-            save();
-        });
-        note(d, "Draws the game at the screen's shape. Off keeps the game's own 16:9 picture, with bars at "
-                + "the sides of a wider screen.");
-        label(d, "Aspect ratio", false);
-        View.OnClickListener[] ac = new View.OnClickListener[GameSettings.ASPECTS.length];
-        for (int i = 0; i < ac.length; i++) {
-            final String a = GameSettings.ASPECTS[i];
-            ac[i] = v -> {
-                mS.aspect = a;
-                save();
-            };
-        }
-        mAspect = segments(d, new String[] {"Screen", "21:9", "16:9", "4:3"}, ac);
-        label(d, "Resolution", false);
-        mResolution = Ui.button(this, "", v -> pickResolution());
-        Ui.navButton(mResolution);
-        d.addView(mResolution, Ui.full(dp(0)));
-        note(d, "Fewer lines can run faster on a slower phone.");
-        label(d, "Low-FPS speed fix (experimental)", false);
-        View.OnClickListener[] fc = new View.OnClickListener[GameSettings.FRAMESKIPS.length];
-        for (int i = 0; i < fc.length; i++) {
-            final String f = GameSettings.FRAMESKIPS[i];
-            fc[i] = v -> {
-                mS.frameskip = f;
-                save();
-            };
-        }
-        mFrameskip = segments(d, new String[] {"Off", "30 FPS", "20 FPS", "Auto"}, fc);
-        note(d, "Keeps stage speed right when the phone can't hold 60 FPS by running extra game ticks per "
-                + "drawn frame. Menus and cutscenes still slow down.");
-        mHud = toggle(d, "HUD at 4:3 positions", (b, on) -> {
-            mS.hud43 = on;
-            save();
-        });
-        note(d, "Keeps the score, time and rings near the middle of a wide picture.");
-        mPictureNote = Ui.text(this, "", Ui.BODY_MEDIUM, Ui.TERTIARY);
-        d.addView(mPictureNote, Ui.full(dp(16)));
+        section(o, "Starting");
+        Ui.Group start = group(o, true);
+        switchRow(start, Ui.Icon.PLAY, "Auto-start the game",
+                  () -> mS.autoPlay ? "When the app opens and when an install finishes" : "The app opens to this screen",
+                  () -> mS.autoPlay, on -> mS.autoPlay = on);
 
-        // Touch controls
-        LinearLayout t = card(col, "Touch controls");
-        mSizeLabel = text("", 15, TEXT, true);
-        t.addView(mSizeLabel);
-        mSize = slider(t, mSizeLabel, 50, 200, 10, v -> {
-            mS.touchSize = v;
-            save();
-        });
-        mOpacityLabel = text("", 15, TEXT, true);
-        t.addView(mOpacityLabel, Ui.full(dp(12)));
-        mOpacity = slider(t, mOpacityLabel, 0, 200, 10, v -> {
-            mS.touchOpacity = v;
-            save();
-        });
-        note(t, "At 0% the controls are hidden but still work.");
-        mLayoutLandscape = action(t, "", v -> editLayout(GameSettings.LANDSCAPE));
-        mLayoutPortrait = action(t, "", v -> editLayout(GameSettings.PORTRAIT));
-        Ui.navButton(mLayoutLandscape);
-        Ui.navButton(mLayoutPortrait);
-        Ui.navButton(action(t, "Change what the touch buttons do", v -> pickMap(true, -1)));
+        section(o, "More");
+        Ui.Group more = group(o, true);
+        Ui.ListRow debug = row(more, Ui.Icon.CODE, "Debug", Ui.chevron(this), v -> showPage("Debug"));
+        status(debug, () -> mS.recordSessions ? "Recording sessions" : "Session exports for bug reports");
+        Ui.ListRow reset = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.RESET, Ui.ERROR_CONTAINER, Ui.ON_ERROR_CONTAINER),
+                "Reset all settings", "", null, v -> new AlertDialog.Builder(this)
+                        .setMessage("Put every game setting back to its default? Your saves stay as they are.")
+                        .setPositiveButton("Reset", (dlg, w) -> {
+                            mS = new GameSettings();
+                            save();
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show());
+        more.add(reset.view);
+        reset.headline.setTextColor(Ui.ERROR);
+        reset.supporting.setText("Your saves stay");
+        reset.supporting.setVisibility(View.VISIBLE);
 
-        // Sound: the levels volume-levels plays at (GameSettings.VOLUME_LEVELS); moving a slider turns it on
-        LinearLayout so = card(col, "Sound");
-        mMusicLabel = text("", 15, TEXT, true);
-        so.addView(mMusicLabel);
-        mMusic = slider(so, mMusicLabel, 0, 100, 5, v -> {
-            mS.musicVolume = v;
-            volumeChanged();
-        });
-        mVoiceLabel = text("", 15, TEXT, true);
-        so.addView(mVoiceLabel, Ui.full(dp(12)));
-        mVoice = slider(so, mVoiceLabel, 0, 100, 5, v -> {
-            mS.voiceVolume = v;
-            volumeChanged();
-        });
-        mSfxLabel = text("", 15, TEXT, true);
-        so.addView(mSfxLabel, Ui.full(dp(12)));
-        mSfx = slider(so, mSfxLabel, 0, 100, 5, v -> {
-            mS.sfxVolume = v;
-            volumeChanged();
-        });
-        note(so, "100% is the game's own level. The PC version's music is loud; the Dreamcast's sat lower. "
-                + "Moving a slider turns on Volume levels under Tweaks, Audio; turn it off there for the game's levels. "
-                + "Short music cues such as the 1-up keep their level.");
-
-        // Controller
-        LinearLayout p = card(col, "Controller");
-        Ui.navButton(action(p, "Change what the controller buttons do", v -> pickMap(false, -1)));
-        note(p, "Buttons are named by where they are: the bottom face button is A, as on an Xbox controller.");
-
-        // Tweaks: their own screen (Sa2TweaksActivity), with a count of the ones on.
-        LinearLayout tw = card(col, "Tweaks");
-        mTweaksEntry = Ui.button(this, "", v -> startActivity(new Intent(this, Sa2TweaksActivity.class)));
-        Ui.navButton(mTweaksEntry);
-        tw.addView(mTweaksEntry, Ui.full(dp(0)));
-        note(tw, "Changes to the game's own behaviour, each off until you turn it on: fixes, assists, look, sound, "
-                + "and Chao. Each one says what it changes, and which ones change your save.");
-        // Saves: the game's own saves, imported, exported and restored (SaveTools).
-        LinearLayout sv = card(col, "Saves");
-        action(sv, "Import saves", v -> pickSaves());
-        action(sv, "Export saves", v -> pickExport());
-        mBackupNow = action(sv, "Back up saves now", v -> backupNow());
-        action(sv, "Restore a backup", v -> pickBackup());
-        note(sv, "Import takes save files (SONIC2B__S01 and the like for the story, SONIC2B__ALF for Chao World) "
-                + "or a ZIP of them, or a Debug Export's saves. It replaces only the saves it brings, and backs up the current ones first (the "
-                + "last " + SaveTools.KEEP + " are kept). Export writes the saves the game sees to a ZIP you choose. "
-                + "Changes apply from the next session.");
-
-        // Debug, last
-        LinearLayout g = card(col, "Debug");
-        debugRows(g);
-
-        Button reset = Ui.button(this, "Reset all settings", v -> new AlertDialog.Builder(this)
-                .setMessage("Put every game setting back to its default?")
-                .setPositiveButton("Reset", (dlg, w) -> {
-                    mS = new GameSettings();
-                    save();
-                })
-                .setNegativeButton("Cancel", null)
-                .show());
-        Ui.style(reset, Ui.QUIET);
-        col.addView(reset, Ui.full(dp(32)));
-        Ui.screen(this, bar, col);
+        buildDisplay(page("Display"));
+        buildTouch(page("Touch controls"));
+        buildController(page("Controller"));
+        buildSound(page("Sound"));
+        buildSaves(page("Saves"));
+        buildDebug(page("Debug"));
+        showPage(null);
     }
 
-    // ------------------------------------------------------------ the state shown
+    private void buildDisplay(Ui.Column d) {
+        Ui.Group screen = group(d, false);
+        choice(screen, "Orientation", ORIENTATION_NAMES, () -> indexOf(ORIENTATIONS, mS.orientation),
+               i -> mS.orientation = ORIENTATIONS[i]);
+        Ui.SliderRow place = slider(screen, "Picture position", 0, 50, 5, () -> mS.pictureY, v -> mS.pictureY = v,
+                                    v -> capital(placeName(v)));
+        mRefresh.add(() -> screen.show(place.view, mS.fixed43()));
+        TextView orientation = footnote(d, "");
+        mRefresh.add(() -> orientation.setText(GameSettings.PORTRAIT.equals(mS.orientation)
+                ? "Hold the phone upright. The game is drawn at 4:3, with the touch controls below it. A higher "
+                  + "picture leaves them more room."
+                : GameSettings.AUTO.equals(mS.orientation)
+                ? "The game turns with the phone when auto-rotate is on, drawn at 4:3 so it fits either way."
+                : "Hold the phone sideways."));
+
+        section(d, "Picture");
+        Ui.Group pic = group(d, false);
+        Ui.ListRow wide = switchRow(pic, -1, "Full-width picture",
+                () -> mS.fixed43() ? "Portrait and auto-rotate always draw at 4:3" : "Off keeps the game's own 16:9",
+                () -> !mS.fixed43() && mS.widescreen, on -> mS.widescreen = on);
+        mRefresh.add(() -> wide.setEnabled(!mS.fixed43()));
+        Ui.ListRow aspect = choice(pic, "Aspect ratio", new String[] {"Screen", "21:9", "16:9", "4:3"},
+                () -> mS.fixed43() ? 3 : indexOf(GameSettings.ASPECTS, mS.aspect), i -> mS.aspect = GameSettings.ASPECTS[i]);
+        mRefresh.add(() -> aspect.setEnabled(!mS.fixed43() && mS.widescreen));
+        Ui.ListRow resolution = row(pic, -1, "Resolution", null, v -> pickResolution());
+        status(resolution, () -> resolutionName(shownResolution()));
+        mRefresh.add(() -> resolution.setEnabled(mS.fixed43() || mS.widescreen));
+        switchRow(pic, -1, "HUD at 4:3 positions", () -> "Score, time and rings near the middle",
+                  () -> mS.hud43, on -> mS.hud43 = on);
+        TextView size = footnote(d, "");
+        mRefresh.add(() -> {
+            int[] p = mS.picture(mLong, mShort);
+            size.setText(p == null ? "The game keeps its own size (" + GameSettings.CONFIG_W + "x" + GameSettings.CONFIG_H
+                                     + "). Fewer lines can run faster on a slower phone."
+                                   : "The game will draw at " + size(p) + ". Fewer lines can run faster on a slower phone.");
+        });
+
+        section(d, "Performance");
+        Ui.Group perf = group(d, false);
+        choice(perf, "Low-FPS speed fix", new String[] {"Off", "30 FPS", "20 FPS", "Auto"},
+               () -> indexOf(GameSettings.FRAMESKIPS, mS.frameskip), i -> mS.frameskip = GameSettings.FRAMESKIPS[i]);
+        footnote(d, "Experimental. Keeps stage speed right when the phone can't hold 60 FPS, by running extra game "
+                    + "ticks per drawn frame. Menus and cutscenes still slow down.");
+    }
+
+    private void buildTouch(Ui.Column t) {
+        Ui.Group look = group(t, false);
+        slider(look, "Size", 50, 200, 10, () -> mS.touchSize, v -> mS.touchSize = v, v -> v + "%");
+        slider(look, "Opacity", 0, 200, 10, () -> mS.touchOpacity, v -> mS.touchOpacity = v, v -> v + "%");
+        footnote(t, "At 0% the controls are hidden but still work.");
+
+        section(t, "Layout");
+        Ui.Group layout = group(t, false);
+        Ui.ListRow land = row(layout, -1, "Landscape layout", Ui.chevron(this), v -> editLayout(GameSettings.LANDSCAPE));
+        Ui.ListRow port = row(layout, -1, "Portrait layout", Ui.chevron(this), v -> editLayout(GameSettings.PORTRAIT));
+        Ui.ListRow map = row(layout, -1, "Touch buttons", Ui.chevron(this), v -> pickMap(true, -1));
+        status(land, () -> "Move and resize the buttons");
+        status(port, () -> "Move and resize the buttons");
+        status(map, () -> mS.touchMap.isEmpty() ? "Each sends its own button" : "Custom");
+        mRefresh.add(() -> {
+            layout.show(land.view, !GameSettings.PORTRAIT.equals(mS.orientation));
+            layout.show(port.view, !GameSettings.LANDSCAPE.equals(mS.orientation));
+        });
+    }
+
+    private void buildController(Ui.Column p) {
+        Ui.Group g = group(p, false);
+        Ui.ListRow map = row(g, -1, "Controller buttons", Ui.chevron(this), v -> pickMap(false, -1));
+        status(map, () -> mS.padMap.isEmpty() ? "Standard" : "Custom");
+        footnote(p, "Buttons are named by where they are: the bottom face button is A, as on an Xbox controller.");
+    }
+
+    private void buildSound(Ui.Column so) {
+        Ui.Group g = group(so, false);
+        slider(g, "Music", 0, 100, 5, () -> mS.musicVolume, v -> {
+            mS.musicVolume = v;
+            mS.tweaksOn.add(GameSettings.VOLUME_LEVELS);
+        }, v -> v + "%");
+        slider(g, "Voices", 0, 100, 5, () -> mS.voiceVolume, v -> {
+            mS.voiceVolume = v;
+            mS.tweaksOn.add(GameSettings.VOLUME_LEVELS);
+        }, v -> v + "%");
+        slider(g, "Sound effects", 0, 100, 5, () -> mS.sfxVolume, v -> {
+            mS.sfxVolume = v;
+            mS.tweaksOn.add(GameSettings.VOLUME_LEVELS);
+        }, v -> v + "%");
+        footnote(so, "100% is the game's own level; the PC version's music is loud. Moving a slider turns on Volume "
+                     + "levels in Tweaks, Audio, and turning that off brings back the game's levels. Short music cues "
+                     + "such as the 1-up keep their level.");
+    }
+
+    private void buildSaves(Ui.Column sv) {
+        Ui.Group g = group(sv, false);
+        action(g, "Import saves", "Save files or a ZIP; your current saves are backed up first", v -> pickSaves());
+        action(g, "Export saves", "Writes the saves the game sees to a ZIP you choose", v -> pickExport());
+        mBackupNow = action(g, "Back up saves now", "The last " + SaveTools.KEEP + " backups are kept", v -> backupNow()).view;
+        action(g, "Restore a backup", "Puts your saves back the way a backup has them", v -> pickBackup());
+        footnote(sv, "Import takes save files (SONIC2B__S01 and the like for the story, SONIC2B__ALF for Chao World), "
+                     + "a ZIP of them, or a Debug Export's saves, and replaces only the saves it brings. Changes "
+                     + "apply from the next session.");
+    }
+
+    private void buildDebug(Ui.Column g0) {
+        Ui.Group g = group(g0, false);
+        switchRow(g, -1, "Record sessions", () -> "Keeps what a replay needs. From the next session.",
+                  () -> mS.recordSessions, on -> mS.recordSessions = on);
+        Ui.ListRow latest = action(g, "Export the latest session", "", v -> export(null));
+        mDebugNote = latest.supporting;
+        mExportLatest = latest.view;
+        mExportPick = action(g, "Export another session", "Pick one of the sessions the app keeps", v -> pickSession()).view;
+        footnote(g0, "An export is one ZIP of a session's logs and saves, with what a replay needs when the session "
+                     + "was recorded. It holds no pictures of the game. The share sheet opens with it.");
+    }
 
     private static int indexOf(String[] a, String v) {
         for (int i = 0; i < a.length; i++) if (a[i].equals(v)) return i;
@@ -417,60 +455,10 @@ public class Sa2SettingsActivity extends Activity {
 
     private void update() {
         mUpdating = true;
-        boolean fixed = mS.fixed43();
-        choose(mOrientation, indexOf(ORIENTATIONS, mS.orientation));
-        mOrientationNote.setText(GameSettings.PORTRAIT.equals(mS.orientation)
-                ? "Hold the phone upright: the game is drawn at 4:3 across the screen, with the touch controls "
-                  + "below it where the screen leaves room."
-                : GameSettings.AUTO.equals(mS.orientation)
-                ? "The game turns with the phone when the phone's auto-rotate is on. It is drawn at 4:3 so it "
-                  + "fits either way; upright, the touch controls go below it where the screen leaves room."
-                : "Hold the phone sideways, as before.");
-        mWidescreen.setChecked(!fixed && mS.widescreen);
-        mWidescreen.setEnabled(!fixed);
-        boolean wide = !fixed && mS.widescreen;
-        choose(mAspect, fixed ? 3 : indexOf(GameSettings.ASPECTS, mS.aspect));
-        for (Button b : mAspect) b.setEnabled(wide);
-        mResolution.setText(resolutionName(shownResolution()));
-        mResolution.setEnabled(fixed || wide);
-        mHud.setChecked(mS.hud43);
-        mAutoPlay.setChecked(mS.autoPlay);
-        if (mRecord != null) mRecord.setChecked(mS.recordSessions);
-        int on = 0;
-        for (GameSettings.Tweak t : GameSettings.TWEAKS) if (mS.tweaksOn.contains(t.name)) on++;
-        mTweaksEntry.setText(on == 0 ? "Tweaks: all off" : "Tweaks: " + on + " of " + GameSettings.TWEAKS.length + " on");
-        int[] pic = mS.picture(mLong, mShort);
-        mPictureNote.setText(pic == null
-                ? "The game keeps its own size (" + GameSettings.CONFIG_W + "x" + GameSettings.CONFIG_H + ")."
-                : "The game will draw at " + size(pic) + (fixed ? ", 4:3, as portrait and auto-rotate always do." : "."));
-        mSizeLabel.setText(String.format(Locale.US, "Size: %d%%", mS.touchSize));
-        mSize.setProgress((mS.touchSize - 50) / 10);
-        describe(mSize, mSizeLabel, mS.touchSize + "%");
-        mOpacityLabel.setText(String.format(Locale.US, "Opacity: %d%%", mS.touchOpacity));
-        mOpacity.setProgress(mS.touchOpacity / 10);
-        describe(mOpacity, mOpacityLabel, mS.touchOpacity + "%");
-        volumeRow(mMusic, mMusicLabel, "Music", mS.musicVolume);
-        volumeRow(mVoice, mVoiceLabel, "Voices", mS.voiceVolume);
-        volumeRow(mSfx, mSfxLabel, "Sound effects", mS.sfxVolume);
-        mPlaceLabel.setText("Picture position: " + placeName(mS.pictureY));
-        mPlace.setProgress(mS.pictureY / 5);
-        describe(mPlace, mPlaceLabel, placeName(mS.pictureY));
-        for (View v : new View[] {mPlaceLabel, mPlace, mPlaceNote}) v.setVisibility(fixed ? View.VISIBLE : View.GONE);
-        boolean landscape = !GameSettings.PORTRAIT.equals(mS.orientation);
-        boolean portrait = !GameSettings.LANDSCAPE.equals(mS.orientation);
-        mLayoutLandscape.setVisibility(landscape ? View.VISIBLE : View.GONE);
-        mLayoutPortrait.setVisibility(portrait ? View.VISIBLE : View.GONE);
-        mLayoutLandscape.setText(portrait ? "Move the controls (landscape)" : "Move the controls");
-        mLayoutPortrait.setText(landscape ? "Move the controls (portrait)" : "Move the controls");
-        choose(mFrameskip, indexOf(GameSettings.FRAMESKIPS, mS.frameskip));
+        for (Runnable r : mRefresh) r.run();
         mUpdating = false;
     }
 
-    // ------------------------------------------------------------ the choices
-
-    /** The default first (the largest picture, or the game's own size where the session keeps it,
-     * on a screen no wider than 4:3, which then also offers the full screen), then fewer lines
-     * than the largest picture has. */
     private void pickResolution() {
         List<Integer> lines = new ArrayList<>();
         int[] full = mS.fullPicture(mLong, mShort);
@@ -695,30 +683,18 @@ public class Sa2SettingsActivity extends Activity {
 
     // ------------------------------------------------------------ debug
 
-    /** The Debug section's rows. */
-    private void debugRows(LinearLayout g) {
-        mRecord = toggle(g, "Record sessions", (b, on) -> {
-            mS.recordSessions = on;
-            save();
-        });
-        note(g, "Keeps each session's saves and settings from before and after it, and the controller's "
-                + "input, so an export can be replayed. Off, a session keeps only its logs. Applies from the "
-                + "next session.");
-        label(g, "Debug Export", false);
-        mDebugNote = note(g, "");
-        mExportLatest = action(g, "Export the latest session", v -> export(null));
-        mExportPick = action(g, "Export another session", v -> pickSession());
-        note(g, "Makes one ZIP of a play session's logs and saves, with what is needed to replay it when the "
-                + "session was recorded, and shares it. It holds no pictures of the game.");
-    }
-
     private void updateDebug() {
         if (mDebugNote == null) return;
         List<File> all = DebugExport.sessions(this);
         mDebugNote.setText(all.isEmpty() ? "No session yet: play once first."
                 : "Latest session: " + all.get(0).getName() + " (" + all.size() + " kept)");
-        mExportLatest.setEnabled(!all.isEmpty());
-        mExportPick.setEnabled(all.size() > 1);
+        enable(mExportLatest, !all.isEmpty());
+        enable(mExportPick, all.size() > 1);
+    }
+
+    private static void enable(View row, boolean on) {
+        row.setEnabled(on);
+        row.setAlpha(on ? 1f : 0.38f);
     }
 
     private void pickSession() {
@@ -734,8 +710,8 @@ public class Sa2SettingsActivity extends Activity {
 
     /** The ZIP on a worker thread (it reads every log and logcat), then the share sheet. */
     private void export(File session) {
-        mExportLatest.setEnabled(false);
-        mExportPick.setEnabled(false);
+        enable(mExportLatest, false);
+        enable(mExportPick, false);
         mDebugNote.setText("Exporting...");
         new Thread(() -> {
             DebugExport.Result r = DebugExport.export(this, session);

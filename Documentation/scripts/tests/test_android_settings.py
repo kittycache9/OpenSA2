@@ -256,15 +256,15 @@ def test_the_tweaks_screen_is_made_from_the_list_and_settings_opens_it():
     """The Tweaks screen (Sa2TweaksActivity) makes a row per group from tweakGroups' order that opens in
     place, a row with a switch and its note for each tweak, a search over labels and notes, each
     switch found by its tweak's name,
-    saved in the preferences like every other setting. Game settings holds one entry row that opens
-    it and says how many are on; no tweak is named on either screen except the Chao boosts."""
+    saved in the preferences like every other setting. Game settings' overview holds one row that
+    opens it and says how many are on; no tweak is named on either screen except the Chao boosts."""
     settings = (APP / "Sa2SettingsActivity.java").read_text()
     tweaks = (APP / "Sa2TweaksActivity.java").read_text()
     prefs = (APP / "GameSettings.java").read_text()
     manifest = (ROOT / "host/android/AndroidManifest.xml").read_text()
-    assert settings.count('card(col, "Tweaks")') == 1
-    assert "startActivity(new Intent(this, Sa2TweaksActivity.class))" in settings
-    assert 'Tweaks: " + on + " of " + GameSettings.TWEAKS.length + " on' in settings
+    assert settings.count('"Tweaks", Ui.chevron(this)') == 1
+    assert "v -> startActivity(new Intent(this, Sa2TweaksActivity.class))" in settings
+    assert 'tweaksOn() + " of " + GameSettings.TWEAKS.length + " on"' in settings
     assert 'android:name=".Sa2TweaksActivity"' in manifest
     assert "GameSettings.tweakGroups(GameSettings.TWEAK_GROUPS, GameSettings.TWEAKS, problems)" in tweaks
     assert "for (GameSettings.TweakGroup group : groups) {" in tweaks

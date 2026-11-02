@@ -327,9 +327,9 @@ def test_the_speed_fix_setting_sends_the_frameskip_and_the_adpf_target(frameskip
 
 def test_the_settings_screen_offers_the_four_choices_in_order():
     java = (ROOT / "host/android/java/com/sa2recomp/app/Sa2SettingsActivity.java").read_text()
-    assert 'label(d, "Low-FPS speed fix (experimental)", false);' in java
-    assert 'segments(d, new String[] {"Off", "30 FPS", "20 FPS", "Auto"}, fc)' in java
-    assert "choose(mFrameskip, indexOf(GameSettings.FRAMESKIPS, mS.frameskip));" in java
+    assert 'choice(perf, "Low-FPS speed fix", new String[] {"Off", "30 FPS", "20 FPS", "Auto"},' in java
+    assert "() -> indexOf(GameSettings.FRAMESKIPS, mS.frameskip), i -> mS.frameskip = GameSettings.FRAMESKIPS[i]);" in java
+    assert "Experimental." in java
     # The session takes SA2_ADPF_TARGET_US as it is (1000 to 1000000 us), no native change.
     native = (ROOT / "host/android/native/sa2_android_session.cpp").read_text()
     assert 'env_find(genv, "SA2_ADPF_TARGET_US")' in native and "us >= 1000 && us <= 1000000" in native
@@ -347,7 +347,7 @@ def test_the_game_starts_by_itself_only_when_the_player_turned_that_on():
     assert "if (GameSettings.load(this).autoPlay) verifyThenPlay();" in setup
     assert setup.count("final boolean start = GameSettings.load(this).autoPlay;") == 2
     assert setup.count("if (start) playUnlessHeld();") == 2
-    assert "Start the game when the app opens" in (app / "Sa2SettingsActivity.java").read_text()
+    assert '"Auto-start the game"' in (app / "Sa2SettingsActivity.java").read_text()
 
 
 def test_the_chao_boosts_are_two_real_tweaks():
