@@ -56,12 +56,6 @@ public class Sa2TweaksActivity extends Activity {
         update();
     }
 
-    @Override
-    @SuppressWarnings("deprecation")
-    public void onBackPressed() {
-        if (!mPages.back()) super.onBackPressed();
-    }
-
     private int dp(float v) {
         return Ui.dp(this, v);
     }
@@ -132,7 +126,7 @@ public class Sa2TweaksActivity extends Activity {
 
         for (GameSettings.TweakGroup group : groups) {
             Ui.ListRow row = new Ui.ListRow(this, Ui.badge(this, icon(group.heading)), group.heading, "",
-                                            Ui.chevron(this), v -> mPages.show(group.heading));
+                                            Ui.chevron(this), v -> mPages.open(group.heading));
             mGroups.add(row.view);
             mRefresh.add(() -> {
                 int n = on(group.tweaks);
@@ -160,7 +154,7 @@ public class Sa2TweaksActivity extends Activity {
             page.addView(Ui.footnote(this, "Tap a note to read all of it. Changes apply the next time the game starts."),
                          Ui.full(dp(10)));
         }
-        mPages.show(null);
+        mPages.start();
     }
 
     /** A tweak's row: its label, the first two lines of its note (tap the note for all of it), and its

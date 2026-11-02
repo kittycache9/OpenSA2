@@ -251,15 +251,16 @@ final class Ui {
         return v;
     }
 
-    /** A screen of pages: the root (an overview) and pages opened from it in place, each under a top
-     * app bar whose back arrow, like the system's back, returns to the root. */
+    /** A screen of pages: the root (an overview) and pages opened from it. Each page opens as its own
+     * instance of the activity (EXTRA_PAGE names it), so the system's own transition and predictive
+     * back play between them, and back closes it. Each instance builds every page and shows its own. */
     static final class Pages {
+        static final String EXTRA_PAGE = "sa2.page";
         private final Activity a;
         private final String rootTitle;
         private final Column root;
         private final View rootAction;
         private final Map<String, Column> pages = new HashMap<>();
-        private String current;
 
         Pages(Activity a, String rootTitle, Column root, View rootAction) {
             this.a = a;
@@ -275,32 +276,16 @@ final class Ui {
             return col;
         }
 
-        void show(String title) {
-            boolean first = !shown, forward = title != null;
-            shown = true;
-            current = title;
-            Column col = title == null ? root : pages.get(title);
-            detach(col);
-            LinearLayout screen = screen(a, topAppBar(a, title == null ? rootTitle : title,
-                                                      title == null ? rootAction : null, v -> {
-                if (!back()) a.finish();
-            }), col);
-            if (first) return;
-            // Material's shared-axis X: the page comes in from the side it is going to, fading in. The
-            // animator follows the system's animation scale, so Remove animations makes it instant.
-            screen.setAlpha(0f);
-            screen.setTranslationX(dp(a, forward ? 32 : -32));
-            screen.animate().alpha(1f).translationX(0f).setDuration(300)
-                  .setInterpolator(new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)).start();
+        /** Shows the page this instance was opened for, or the root. */
+        void start() {
+            String title = a.getIntent().getStringExtra(EXTRA_PAGE);
+            Column col = title == null || !pages.containsKey(title) ? root : pages.get(title);
+            boolean isRoot = col == root;
+            screen(a, topAppBar(a, isRoot ? rootTitle : title, isRoot ? rootAction : null), col);
         }
 
-        private boolean shown;
-
-        /** Back to the root from a page; false when the root shows. */
-        boolean back() {
-            if (current == null) return false;
-            show(null);
-            return true;
+        void open(String title) {
+            a.startActivity(new android.content.Intent(a, a.getClass()).putExtra(EXTRA_PAGE, title));
         }
     }
 

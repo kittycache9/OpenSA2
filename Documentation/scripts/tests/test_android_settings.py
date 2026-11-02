@@ -269,7 +269,7 @@ def test_the_tweaks_screen_is_made_from_the_list_and_settings_opens_it():
     assert "GameSettings.tweakGroups(GameSettings.TWEAK_GROUPS, GameSettings.TWEAKS, problems)" in tweaks
     assert "for (GameSettings.TweakGroup group : groups) {" in tweaks
     assert "new Ui.ListRow(this, Ui.badge(this, icon(group.heading)), group.heading, \"\"," in tweaks
-    assert "v -> mPages.show(group.heading)" in tweaks
+    assert "v -> mPages.open(group.heading)" in tweaks
     assert "for (GameSettings.Tweak tweak : group.tweaks) {" in tweaks
     assert "Ui.ListRow row = new Ui.ListRow(this, tweak.label, tweak.description, w, v -> w.toggle());" in tweaks
     assert "t.label.toLowerCase(Locale.ROOT).contains(mQuery)" in tweaks and "t.description.toLowerCase(Locale.ROOT).contains(mQuery)" in tweaks

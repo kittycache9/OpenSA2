@@ -90,12 +90,6 @@ public class Sa2SettingsActivity extends Activity {
 
     // ------------------------------------------------------------ the screen
 
-    @Override
-    @SuppressWarnings("deprecation")
-    public void onBackPressed() {
-        if (!mPages.back()) super.onBackPressed();
-    }
-
     private void section(LinearLayout col, String title) {
         col.addView(Ui.heading(this, title), Ui.full(dp(28)));
     }
@@ -223,21 +217,21 @@ public class Sa2SettingsActivity extends Activity {
                                 v -> startActivity(new Intent(this, Sa2TweaksActivity.class)));
         status(tweaks, () -> tweaksOn() == 0 ? "All " + GameSettings.TWEAKS.length + " off"
                                              : tweaksOn() + " of " + GameSettings.TWEAKS.length + " on");
-        Ui.ListRow display = row(areas, Ui.Icon.DISPLAY, "Display", Ui.chevron(this), v -> mPages.show("Display"));
+        Ui.ListRow display = row(areas, Ui.Icon.DISPLAY, "Display", Ui.chevron(this), v -> mPages.open("Display"));
         status(display, () -> {
             int[] pic = mS.picture(mLong, mShort);
             return ORIENTATION_NAMES[indexOf(ORIENTATIONS, mS.orientation)] + " · "
                    + (pic == null ? GameSettings.CONFIG_W + "x" + GameSettings.CONFIG_H : size(pic));
         });
-        Ui.ListRow touch = row(areas, Ui.Icon.TOUCH, "Touch controls", Ui.chevron(this), v -> mPages.show("Touch controls"));
+        Ui.ListRow touch = row(areas, Ui.Icon.TOUCH, "Touch controls", Ui.chevron(this), v -> mPages.open("Touch controls"));
         status(touch, () -> "Size " + mS.touchSize + "%, opacity " + mS.touchOpacity + "%");
-        Ui.ListRow pad = row(areas, Ui.Icon.GAMEPAD, "Controller", Ui.chevron(this), v -> mPages.show("Controller"));
+        Ui.ListRow pad = row(areas, Ui.Icon.GAMEPAD, "Controller", Ui.chevron(this), v -> mPages.open("Controller"));
         status(pad, () -> mS.padMap.isEmpty() ? "Standard buttons" : "Custom buttons");
-        Ui.ListRow sound = row(areas, Ui.Icon.SOUND, "Sound", Ui.chevron(this), v -> mPages.show("Sound"));
+        Ui.ListRow sound = row(areas, Ui.Icon.SOUND, "Sound", Ui.chevron(this), v -> mPages.open("Sound"));
         status(sound, () -> mS.tweaksOn.contains(GameSettings.VOLUME_LEVELS)
                 ? "Music " + mS.musicVolume + "%, voices " + mS.voiceVolume + "%, effects " + mS.sfxVolume + "%"
                 : "The game's own levels");
-        Ui.ListRow saves = row(areas, Ui.Icon.SAVE, "Saves", Ui.chevron(this), v -> mPages.show("Saves"));
+        Ui.ListRow saves = row(areas, Ui.Icon.SAVE, "Saves", Ui.chevron(this), v -> mPages.open("Saves"));
         status(saves, () -> {
             int n = SaveTools.backups(SaveTools.backupRoot(this)).size();
             return n == 0 ? "Import, export and back up" : n + (n == 1 ? " backup" : " backups") + " kept";
@@ -251,7 +245,7 @@ public class Sa2SettingsActivity extends Activity {
 
         section(o, "More");
         Ui.Group more = group(o, true);
-        Ui.ListRow debug = row(more, Ui.Icon.CODE, "Debug", Ui.chevron(this), v -> mPages.show("Debug"));
+        Ui.ListRow debug = row(more, Ui.Icon.CODE, "Debug", Ui.chevron(this), v -> mPages.open("Debug"));
         status(debug, () -> mS.recordSessions ? "Recording sessions" : "Session exports for bug reports");
         Ui.ListRow reset = new Ui.ListRow(this, Ui.badge(this, Ui.Icon.RESET, Ui.ERROR_CONTAINER, Ui.ON_ERROR_CONTAINER),
                 "Reset all settings", "", null, v -> new AlertDialog.Builder(this)
@@ -273,7 +267,7 @@ public class Sa2SettingsActivity extends Activity {
         buildSound(mPages.add("Sound"));
         buildSaves(mPages.add("Saves"));
         buildDebug(mPages.add("Debug"));
-        mPages.show(null);
+        mPages.start();
     }
 
     private void buildDisplay(Ui.Column d) {
