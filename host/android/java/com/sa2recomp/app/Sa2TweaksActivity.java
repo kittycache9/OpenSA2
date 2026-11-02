@@ -170,28 +170,39 @@ public class Sa2TweaksActivity extends Activity {
         mPages.start();
     }
 
-    /** A tweak's row: its label, the first two lines of its note (tap the note for all of it), and its
-     * switch; a tap anywhere else on the row flips the switch. */
+    /** A tweak's row: its label, the first two lines of its note, and its switch. A tap on the note opens
+     * or closes all of it; flipping the switch (or tapping elsewhere on the row) opens it too, so the
+     * player reads what they just changed. The row grows and shrinks with the system's layout transition. */
     private View tweakRow(GameSettings.Tweak tweak) {
         Switch w = Ui.switchStyle(this, "");
         w.setContentDescription(tweak.label);
-        w.setOnCheckedChangeListener((b, on) -> {
-            if (mUpdating) return;
-            if (on) mS.tweaksOn.add(tweak.name);
-            else mS.tweaksOn.remove(tweak.name);
-            save();
-        });
         mSwitches.computeIfAbsent(tweak.name, k -> new ArrayList<>()).add(w);
         Ui.ListRow row = new Ui.ListRow(this, tweak.label, tweak.description, w, v -> w.toggle());
         TextView note = row.supporting;
         note.setMaxLines(2);
         note.setEllipsize(TextUtils.TruncateAt.END);
-        note.setOnClickListener(v -> {
-            boolean open = note.getMaxLines() == 2;
-            note.setMaxLines(open ? Integer.MAX_VALUE : 2);
-            note.setEllipsize(open ? null : TextUtils.TruncateAt.END);
+        note.setOnClickListener(v -> openNote(row, note.getMaxLines() == 2));
+        w.setOnCheckedChangeListener((b, on) -> {
+            if (mUpdating) return;
+            if (on) mS.tweaksOn.add(tweak.name);
+            else mS.tweaksOn.remove(tweak.name);
+            save();
+            openNote(row, true);
         });
         return row.view;
+    }
+
+    private static void openNote(Ui.ListRow row, boolean open) {
+        TextView note = row.supporting;
+        if ((note.getMaxLines() != 2) == open) return;
+        if (row.view.getParent() instanceof android.view.ViewGroup) {
+            android.transition.ChangeBounds grow = new android.transition.ChangeBounds();
+            grow.setDuration(250);
+            grow.setInterpolator(new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f));
+            android.transition.TransitionManager.beginDelayedTransition((android.view.ViewGroup) row.view.getParent(), grow);
+        }
+        note.setMaxLines(open ? Integer.MAX_VALUE : 2);
+        note.setEllipsize(open ? null : TextUtils.TruncateAt.END);
     }
 
     /** With a query, the matching tweaks across groups in place of the groups. */
