@@ -13,6 +13,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.Switch;
+import android.widget.TextView;
 
 /** The setup and settings screens' look, built in code: rounded buttons, rows of them, a column
  * no wider than a phone held upright, and the system bars' insets as padding. */
@@ -129,5 +131,53 @@ final class Ui {
             view.setPadding(l, t, r, b);
             return insets;
         });
+    }
+    /** A section's title in the accent colour, read as a heading by TalkBack. */
+    static TextView heading(Context c, String title) {
+        TextView head = new TextView(c);
+        head.setText(title);
+        head.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        head.setTextColor(Color.rgb(0x8C, 0xB6, 0xFF));
+        head.setTypeface(Typeface.DEFAULT_BOLD);
+        head.setAllCaps(true);
+        head.setLetterSpacing(0.08f);
+        if (Build.VERSION.SDK_INT >= 28) head.setAccessibilityHeading(true);
+        return head;
+    }
+
+    /** A rounded card that holds one section's rows. */
+    static LinearLayout card(Context c) {
+        LinearLayout card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(c, 14));
+        bg.setColor(Color.rgb(0x18, 0x22, 0x3D));
+        bg.setStroke(dp(c, 1), Color.rgb(0x26, 0x30, 0x48));
+        card.setBackground(bg);
+        card.setPadding(dp(c, 16), dp(c, 6), dp(c, 16), dp(c, 14));
+        return card;
+    }
+
+    /** A hairline between two rows of a card. */
+    static View divider(Context c) {
+        View v = new View(c);
+        v.setBackgroundColor(Color.rgb(0x26, 0x30, 0x48));
+        return v;
+    }
+
+    /** A switch in the app's blue; its label is part of the switch, so TalkBack reads both. */
+    static Switch switchStyle(Context c, String label) {
+        Switch w = new Switch(c);
+        w.setText(label);
+        w.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        w.setTypeface(Typeface.DEFAULT_BOLD);
+        int[][] states = {{-android.R.attr.state_enabled}, {android.R.attr.state_checked}, {}};
+        w.setThumbTintList(new ColorStateList(states, new int[] {Color.rgb(0x3A, 0x48, 0x66),
+                                              Color.rgb(0x2B, 0x6B, 0xE8), Color.rgb(0xB8, 0xC4, 0xDA)}));
+        w.setTrackTintList(new ColorStateList(states, new int[] {Color.rgb(0x24, 0x30, 0x4D),
+                                              Color.rgb(0x6F, 0x9C, 0xF0), Color.rgb(0x3A, 0x48, 0x66)}));
+        w.setTextColor(new ColorStateList(new int[][] {{-android.R.attr.state_enabled}, {}},
+                                          new int[] {Color.rgb(0x5D, 0x6A, 0x85), Color.rgb(0xE8, 0xED, 0xF7)}));
+        return w;
     }
 }

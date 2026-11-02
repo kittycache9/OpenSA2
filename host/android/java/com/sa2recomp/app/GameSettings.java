@@ -292,7 +292,7 @@ final class GameSettings {
         return out;
     }
 
-    /** What the Chao boosts button turns on (Sa2SettingsActivity.chaoBoosts); both write to the save. */
+    /** What the Chao boosts button turns on (Sa2TweaksActivity.chaoBoosts); both write to the save. */
     static final String[] CHAO_BOOSTS = {"chao-stat-x5", "garden-ring-trickle"};
 
     /** What the setup screen's Chao World button turns on for its one launch (Sa2Activity.EXTRA_TWEAKS),

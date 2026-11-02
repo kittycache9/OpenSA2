@@ -113,7 +113,7 @@ def java(tmp_path_factory):
     src.mkdir(parents=True)
     (src / "SettingsDriver.java").write_text(DRIVER)
     (src / "BackupDriver.java").write_text(BACKUP_DRIVER)
-    for name in ("GameSettings", "Sa2SettingsActivity", "Ui", "Sa2LayoutActivity", "SaveTools", "DebugExport",
+    for name in ("GameSettings", "Sa2SettingsActivity", "Sa2TweaksActivity", "Ui", "Sa2LayoutActivity", "SaveTools", "DebugExport",
                  "CrashReport", "Tombstone", "ExportProvider", "VulkanSupport"):
         shutil.copy(APP / f"{name}.java", src)
     # The Debug card's export reads the crash report's redaction (CrashReport), which reads one helper
@@ -252,25 +252,32 @@ def test_a_tweak_in_no_group_is_named_and_shown_under_other(java):
                         '"fov" is in no group; shown under Other']
 
 
-def test_the_tweaks_card_is_made_from_the_list():
-    """One Tweaks card, made from tweakGroups' order: a heading for each group and a switch and its
-    note for each tweak, each switch found by its tweak's name, and the switches kept in the
-    preferences like every other setting: no tweak is named on the screen itself."""
-    screen = (APP / "Sa2SettingsActivity.java").read_text()
-    settings = (APP / "GameSettings.java").read_text()
-    assert screen.count('card(col, "Tweaks")') == 1
-    assert "GameSettings.tweakGroups(GameSettings.TWEAK_GROUPS, GameSettings.TWEAKS, problems)" in screen
-    assert "for (GameSettings.TweakGroup group : groups) {" in screen
-    assert "tw.addView(heading(group.heading)," in screen
-    assert "for (GameSettings.Tweak tweak : group.tweaks) {" in screen
-    assert "Switch w = toggle(tw, tweak.label," in screen and "note(tw, tweak.description);" in screen
-    assert "mTweaks.put(tweak.name, w);" in screen
-    assert "e.getValue().setChecked(mS.tweaksOn.contains(e.getKey()));" in screen
-    assert "GameSettings.TWEAKS[" not in screen and "TWEAKS.length" not in screen
-    assert "if (Build.VERSION.SDK_INT >= 28) head.setAccessibilityHeading(true);" in screen
-    assert "no-event-bars" not in screen and "eventBars" not in screen + settings
-    assert 'p.getBoolean("tweak_" + t.name, false)' in settings
-    assert 'e.putBoolean("tweak_" + t.name, tweaksOn.contains(t.name));' in settings
+def test_the_tweaks_screen_is_made_from_the_list_and_settings_opens_it():
+    """The Tweaks screen (Sa2TweaksActivity) makes a card per group from tweakGroups' order: a heading
+    for each group and a switch and its note for each tweak, each switch found by its tweak's name,
+    saved in the preferences like every other setting. Game settings holds one entry row that opens
+    it and says how many are on; no tweak is named on either screen except the Chao boosts."""
+    settings = (APP / "Sa2SettingsActivity.java").read_text()
+    tweaks = (APP / "Sa2TweaksActivity.java").read_text()
+    prefs = (APP / "GameSettings.java").read_text()
+    manifest = (ROOT / "host/android/AndroidManifest.xml").read_text()
+    assert settings.count('card(col, "Tweaks")') == 1
+    assert "startActivity(new Intent(this, Sa2TweaksActivity.class))" in settings
+    assert 'Tweaks: " + on + " of " + GameSettings.TWEAKS.length + " on' in settings
+    assert 'android:name=".Sa2TweaksActivity"' in manifest
+    assert "GameSettings.tweakGroups(GameSettings.TWEAK_GROUPS, GameSettings.TWEAKS, problems)" in tweaks
+    assert "for (GameSettings.TweakGroup group : groups) {" in tweaks
+    assert "col.addView(Ui.heading(this, group.heading)," in tweaks
+    assert "for (GameSettings.Tweak tweak : group.tweaks) {" in tweaks
+    assert "Switch w = Ui.switchStyle(this, tweak.label);" in tweaks
+    assert "TextView note = text(tweak.description, 13, NOTE, false);" in tweaks
+    assert "mSwitches.put(tweak.name, w);" in tweaks
+    assert "e.getValue().setChecked(mS.tweaksOn.contains(e.getKey()));" in tweaks
+    assert "GameSettings.TWEAKS[" not in tweaks + settings and "TWEAKS.length" in tweaks + settings
+    assert "no-event-bars" not in settings + tweaks and "eventBars" not in settings + tweaks + prefs
+    assert 'p.getBoolean("tweak_" + t.name, false)' in prefs
+    assert 'e.putBoolean("tweak_" + t.name, tweaksOn.contains(t.name));' in prefs
+    assert "if (Build.VERSION.SDK_INT >= 28) head.setAccessibilityHeading(true);" in (APP / "Ui.java").read_text()
 
 
 def backups(root: Path) -> list[tuple[str, dict[str, bytes]]]:

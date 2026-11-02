@@ -1,5 +1,5 @@
 """vanilla-profile, the launcher's host tweak (host/launch/tweaks/vanilla-profile.cpp), and the
-Android Tweaks card's "Turn every tweak off", its form there.
+Android Tweaks screen's "Turn every tweak off", its form there.
 
 On the desktop, share/game.env's SA2_TWEAKS naming vanilla-profile gives the game, the player and
 the launcher's own reader SA2_TWEAKS=vanilla-profile alone: every other tweak is off and game.env
@@ -249,6 +249,6 @@ def test_android_turn_every_tweak_off_clears_the_switches(tmp_path):
 
     assert java() == ["[]"]
     assert java("no-event-bars") == ["[no-event-bars]"]     # and no SA2_TWEAKS after it
-    screen = (APP / "Sa2SettingsActivity.java").read_text()
-    assert 'mTweaksOff = action(tw, "Turn every tweak off",' in screen
-    assert "mS.tweaksOff()" in screen and "mTweaksOff.setEnabled(!mS.tweaksOn.isEmpty());" in screen
+    screen = (APP / "Sa2TweaksActivity.java").read_text()
+    assert 'mTurnOff = Ui.button(this, "Turn every tweak off",' in screen
+    assert "mS.tweaksOff()" in screen and "mTurnOff.setEnabled(on > 0);" in screen

@@ -55,9 +55,7 @@ public class Sa2SettingsActivity extends Activity {
     private int mLong, mShort;
     private Button[] mOrientation, mAspect;
     private Switch mWidescreen, mHud, mRecord, mAutoPlay;
-    private final Map<String, Switch> mTweaks = new HashMap<>();   // each GameSettings.TWEAKS name's switch
-    private Button mTweaksOff;                 // every tweak off at once (GameSettings.tweaksOff)
-    private Button mChaoBoosts, mBackupNow;
+    private Button mTweaksEntry, mBackupNow;   // the row that opens the Tweaks screen; Back up saves now
     private Button mResolution, mLayoutLandscape, mLayoutPortrait;
     private TextView mOrientationNote, mPictureNote, mSizeLabel, mOpacityLabel, mPlaceLabel, mPlaceNote;
     private SeekBar mSize, mOpacity, mPlace, mMusic, mVoice, mSfx;
@@ -111,24 +109,13 @@ public class Sa2SettingsActivity extends Activity {
 
     /** A section's title: a card's, or a group's inside a card. TalkBack can move from one to the next. */
     private TextView heading(String title) {
-        TextView head = text(title, 13, Color.rgb(0x8C, 0xB6, 0xFF), true);
-        head.setAllCaps(true);
-        head.setLetterSpacing(0.08f);
-        if (Build.VERSION.SDK_INT >= 28) head.setAccessibilityHeading(true);
-        return head;
+        return Ui.heading(this, title);
     }
 
     /** A rounded card holding one section's rows. */
     private LinearLayout card(LinearLayout col, String title) {
         col.addView(heading(title), Ui.full(dp(24)));
-        LinearLayout c = new LinearLayout(this);
-        c.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(12));
-        bg.setColor(Color.rgb(0x18, 0x22, 0x3D));
-        bg.setStroke(dp(1), Color.rgb(0x26, 0x30, 0x48));
-        c.setBackground(bg);
-        c.setPadding(dp(14), dp(12), dp(14), dp(14));
+        LinearLayout c = Ui.card(this);
         col.addView(c, Ui.full(dp(8)));
         return c;
     }
@@ -171,17 +158,7 @@ public class Sa2SettingsActivity extends Activity {
     }
 
     private Switch toggle(LinearLayout c, String s, CompoundButton.OnCheckedChangeListener change) {
-        Switch w = new Switch(this);
-        w.setText(s);
-        w.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        w.setTypeface(Typeface.DEFAULT_BOLD);
-        int[][] states = {{-android.R.attr.state_enabled}, {android.R.attr.state_checked}, {}};
-        w.setThumbTintList(new ColorStateList(states, new int[] {Color.rgb(0x3A, 0x48, 0x66),
-                                              Color.rgb(0x2B, 0x6B, 0xE8), Color.rgb(0xB8, 0xC4, 0xDA)}));
-        w.setTrackTintList(new ColorStateList(states, new int[] {Color.rgb(0x24, 0x30, 0x4D),
-                                              Color.rgb(0x6F, 0x9C, 0xF0), Color.rgb(0x3A, 0x48, 0x66)}));
-        w.setTextColor(new ColorStateList(new int[][] {{-android.R.attr.state_enabled}, {}},
-                                          new int[] {Color.rgb(0x5D, 0x6A, 0x85), TEXT}));
+        Switch w = Ui.switchStyle(this, s);
         w.setOnCheckedChangeListener((b, on) -> {
             if (!mUpdating) change.onCheckedChanged(b, on);
         });
@@ -360,38 +337,13 @@ public class Sa2SettingsActivity extends Activity {
         action(p, "Change what the controller buttons do", v -> pickMap(false, -1));
         note(p, "Buttons are named by where they are: the bottom face button is A, as on an Xbox controller.");
 
-        // Tweaks: changes to the game's own behaviour, none made by default, a switch and its note for
-        // each line of GameSettings.TWEAKS, under GameSettings.TWEAK_GROUPS's headings, each group
-        // in the group's own order (GameSettings, "The tweaks"). A switch is its tweak's by name.
+        // Tweaks: their own screen (Sa2TweaksActivity), with a count of the ones on.
         LinearLayout tw = card(col, "Tweaks");
-        List<String> problems = new ArrayList<>();
-        List<GameSettings.TweakGroup> groups =
-                GameSettings.tweakGroups(GameSettings.TWEAK_GROUPS, GameSettings.TWEAKS, problems);
-        for (String problem : problems) Log.w("sa2recomp", "sa2 tweaks card: " + problem);
-        for (GameSettings.TweakGroup group : groups) {
-            tw.addView(heading(group.heading), Ui.full(mTweaks.isEmpty() ? 0 : dp(24)));
-            for (GameSettings.Tweak tweak : group.tweaks) {
-                Switch w = toggle(tw, tweak.label, (b, on) -> {
-                    if (on) mS.tweaksOn.add(tweak.name);
-                    else mS.tweaksOn.remove(tweak.name);
-                    save();
-                });
-                if (tweak == group.tweaks.get(0)) ((LinearLayout.LayoutParams) w.getLayoutParams()).topMargin = dp(8);
-                mTweaks.put(tweak.name, w);
-                note(tw, tweak.description);
-            }
-            if ("Chao".equals(group.heading)) mChaoBoosts = action(tw, "Turn on the Chao boosts", v -> chaoBoosts());
-        }
-        // Vanilla: every tweak off at once (the desktop's is vanilla-profile, runtime/sa2_tweaks.h).
-        mTweaksOff = action(tw, "Turn every tweak off", v -> new AlertDialog.Builder(this)
-                .setMessage("Turn every tweak off, so the game plays as it was made?")
-                .setPositiveButton("Turn off", (dlg, w) -> {
-                    Log.i("sa2recomp", "sa2 host tweaks: vanilla: every tweak turned off on the Tweaks card (were "
-                          + mS.tweaksOff() + ")");
-                    save();
-                })
-                .setNegativeButton("Cancel", null)
-                .show());
+        mTweaksEntry = Ui.button(this, "", v -> startActivity(new Intent(this, Sa2TweaksActivity.class)));
+        Ui.style(mTweaksEntry, Ui.SECONDARY);
+        tw.addView(mTweaksEntry, Ui.full(dp(12)));
+        note(tw, "Changes to the game's own behaviour, each off until you turn it on: fixes, assists, look, sound, "
+                + "and Chao. Each one says what it changes, and which ones change your save.");
         // Saves: the game's own saves, imported, exported and restored (SaveTools).
         LinearLayout sv = card(col, "Saves");
         action(sv, "Import saves", v -> pickSaves());
@@ -492,9 +444,9 @@ public class Sa2SettingsActivity extends Activity {
         mHud.setChecked(mS.hud43);
         mAutoPlay.setChecked(mS.autoPlay);
         if (mRecord != null) mRecord.setChecked(mS.recordSessions);
-        for (Map.Entry<String, Switch> e : mTweaks.entrySet()) e.getValue().setChecked(mS.tweaksOn.contains(e.getKey()));
-        mTweaksOff.setEnabled(!mS.tweaksOn.isEmpty());
-        if (mChaoBoosts != null) mChaoBoosts.setEnabled(!mS.tweaksOn.containsAll(Arrays.asList(GameSettings.CHAO_BOOSTS)));
+        int on = 0;
+        for (GameSettings.Tweak t : GameSettings.TWEAKS) if (mS.tweaksOn.contains(t.name)) on++;
+        mTweaksEntry.setText(on == 0 ? "Tweaks: all off" : "Tweaks: " + on + " of " + GameSettings.TWEAKS.length + " on");
         int[] pic = mS.picture(mLong, mShort);
         mPictureNote.setText(pic == null
                 ? "The game keeps its own size (" + GameSettings.CONFIG_W + "x" + GameSettings.CONFIG_H + ")."
@@ -696,40 +648,6 @@ public class Sa2SettingsActivity extends Activity {
                 Toast.makeText(this, m, Toast.LENGTH_LONG).show();
             });
         }, "save-backup").start();
-    }
-
-    /** The Chao boosts: GameSettings.CHAO_BOOSTS together. Both write to the save and stay in it when
-     * switched off again, so the first question offers the backup the Saves card makes. */
-    private void chaoBoosts() {
-        new AlertDialog.Builder(this).setTitle("Turn on the Chao boosts?")
-                .setMessage("This turns on \"Chao stats x5\" and \"Rings over time in Chao World\". The stat "
-                        + "points and rings they add are written to your save and stay when you turn the boosts "
-                        + "off. You can back up your saves first, then restore that backup to undo it.")
-                .setPositiveButton("Back up, then turn on", (dlg, w) -> new Thread(() -> {
-                    String msg;
-                    boolean backedUp;
-                    try {
-                        msg = SaveTools.backupNow(this);
-                        backedUp = true;
-                    } catch (Exception e) {
-                        msg = "No backup was made (" + e.getMessage() + "), so the Chao boosts stay off.";
-                        backedUp = false;
-                    }
-                    final String m = msg;
-                    final boolean on = backedUp;
-                    runOnUiThread(() -> {
-                        Toast.makeText(this, m, Toast.LENGTH_LONG).show();
-                        if (on) applyChaoBoosts();
-                    });
-                }, "save-backup").start())
-                .setNeutralButton("Turn on", (dlg, w) -> applyChaoBoosts())
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private void applyChaoBoosts() {
-        mS.tweaksOn.addAll(Arrays.asList(GameSettings.CHAO_BOOSTS));
-        save();
     }
 
     private void doImport(List<SaveTools.Found> saves) {

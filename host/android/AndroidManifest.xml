@@ -44,6 +44,11 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode" />
 
         <!-- The touch controls' layout editor: full screen, in the orientation it edits. -->
+        <activity android:name=".Sa2TweaksActivity"
+            android:label="@string/app_name"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode" />
+
         <activity android:name=".Sa2LayoutActivity"
             android:label="@string/app_name"
             android:exported="false"
