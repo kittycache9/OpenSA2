@@ -807,36 +807,35 @@ public class Sa2SetupActivity extends Activity {
      * again. Not installed: Choose game ZIP on its own, then the folder check and the settings. */
     private void layoutActions(boolean installed) {
         mActions.removeAllViews();
+        for (View v : new View[] {mPlay, mChao, mChaoNote, mSettings, mZip, mCheck}) Ui.detach(v);
+        LinearLayout more = Ui.card(this);
         if (installed) {
             mZip.setText("Reinstall from ZIP");
             mCheck.setText("Reinstall from folder");
             Ui.style(mPlay, Ui.PRIMARY);
             Ui.style(mChao, Ui.SECONDARY);
-            Ui.style(mZip, Ui.SECONDARY);
-            Ui.style(mCheck, Ui.SECONDARY);
-            Ui.style(mSettings, Ui.SECONDARY);
-            Ui.detach(mPlay);
-            Ui.detach(mChao);
-            Ui.detach(mChaoNote);
-            Ui.detach(mSettings);
+            Ui.navButton(mSettings);
+            Ui.listButton(mZip);
+            Ui.listButton(mCheck);
             mActions.addView(mPlay, Ui.full(0));
-            mActions.addView(mChao, Ui.full(dp(8)));
-            mActions.addView(mChaoNote, Ui.full(dp(4)));
-            mActions.addView(mSettings, Ui.full(dp(8)));
-            mActions.addView(Ui.row(this, mZip, mCheck), Ui.full(dp(8)));
+            mActions.addView(mChao, Ui.full(dp(12)));
+            mActions.addView(mChaoNote, Ui.full(dp(8)));
+            more.addView(mSettings, Ui.full(0));
+            more.addView(Ui.divider(this), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
+            more.addView(mZip, Ui.full(0));
+            more.addView(mCheck, Ui.full(0));
         } else {
             mZip.setText("Choose game ZIP");
             mCheck.setText("Check game folder");
             Ui.style(mZip, Ui.PRIMARY);
-            Ui.style(mCheck, Ui.SECONDARY);
-            Ui.style(mSettings, Ui.QUIET);
-            Ui.detach(mZip);
-            Ui.detach(mCheck);
-            Ui.detach(mSettings);
+            Ui.style(mCheck, Ui.QUIET);
+            Ui.navButton(mSettings);
             mActions.addView(mZip, Ui.full(0));
-            mActions.addView(mCheck, Ui.full(dp(8)));
-            mActions.addView(mSettings, Ui.full(dp(8)));
+            mActions.addView(mCheck, Ui.full(dp(12)));
+            more.addView(mSettings, Ui.full(0));
         }
+        more.setPadding(dp(16), dp(4), dp(16), dp(4));
+        mActions.addView(more, Ui.full(dp(24)));
         mZip.setEnabled(!mBusy);
         mCheck.setEnabled(!mBusy);
         mPlay.setEnabled(!mBusy);
@@ -848,7 +847,8 @@ public class Sa2SetupActivity extends Activity {
     private void banner(String text) {
         mBanner.setText(text == null ? "" : text);
         mBanner.setVisibility(text == null ? View.GONE : View.VISIBLE);
-        Ui.style(mGithub, text == null ? Ui.QUIET : Ui.ALERT);
+        if (text == null) Ui.listButton(mGithub);
+        else Ui.style(mGithub, Ui.ALERT);
     }
 
     /** The footer: who makes the app and who has contributed to it (a tap opens GitHub's contributors
@@ -864,18 +864,18 @@ public class Sa2SetupActivity extends Activity {
         View bar = new View(this);
         GradientDrawable accent = new GradientDrawable();
         accent.setCornerRadius(dp(2));
-        accent.setColor(Color.rgb(0x2B, 0x6B, 0xE8));
+        accent.setColor(Ui.PRIMARY_COLOR);
         bar.setBackground(accent);
         f.addView(bar, new LinearLayout.LayoutParams(dp(40), dp(3)));
 
         TextView who = new TextView(this);
         SpannableStringBuilder b = new SpannableStringBuilder();
-        int bright = Color.rgb(0xE8, 0xED, 0xF7);
+        int bright = Ui.ON_SURFACE;
         appendStyled(b, "OpenSA2", bright, true);
         b.append(" is an open-source project by ");
         appendStyled(b, "kittycache9", bright, true);
         who.setText(b);
-        who.setTextColor(Color.rgb(0x8A, 0x97, 0xB2));
+        who.setTextColor(Ui.ON_SURFACE_VARIANT);
         who.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         who.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -895,7 +895,7 @@ public class Sa2SetupActivity extends Activity {
                 names.append(join).append(CONTRIBUTORS[i]);
             }
             with.setText(c);
-            with.setTextColor(Color.rgb(0x8A, 0x97, 0xB2));
+            with.setTextColor(Ui.ON_SURFACE_VARIANT);
             with.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
             with.setGravity(Gravity.CENTER);
             with.setMinHeight(dp(40));   // a tap target as tall as the pills below; the ripple stays on the text
@@ -963,7 +963,7 @@ public class Sa2SetupActivity extends Activity {
 
         TextView legal = new TextView(this);
         legal.setText("Not affiliated with SEGA or Sonic Team.");
-        legal.setTextColor(Color.rgb(0x66, 0x72, 0x8D));
+        legal.setTextColor(Ui.OUTLINE);
         legal.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         legal.setGravity(Gravity.CENTER_HORIZONTAL);
         lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -984,19 +984,10 @@ public class Sa2SetupActivity extends Activity {
     /** A small rounded, outlined button for the footer's links. */
     private Button pill(String text, View.OnClickListener click) {
         Button b = Ui.button(this, text, click);
-        GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(dp(20));
-        shape.setColor(Color.rgb(0x18, 0x22, 0x3D));
-        shape.setStroke(dp(1), Color.rgb(0x3A, 0x48, 0x66));
-        b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x40FFFFFF), shape, null));
-        b.setTextColor(Color.rgb(0x8C, 0xB6, 0xFF));
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
+        Ui.style(b, Ui.QUIET);
         b.setMinHeight(dp(40));
         b.setMinimumHeight(dp(40));
-        b.setMinWidth(0);
-        b.setMinimumWidth(0);
-        b.setPadding(dp(18), 0, dp(18), 0);
+        b.setPadding(dp(16), 0, dp(16), 0);
         return b;
     }
 
@@ -1010,33 +1001,19 @@ public class Sa2SetupActivity extends Activity {
     private void buildUi() {
         int pad = dp(16);
         Ui.Column col = new Ui.Column(this, dp(640));
-        col.setPadding(pad, pad, pad, pad);
+        col.setPadding(pad, dp(24), pad, dp(32));
 
-        TextView title = new TextView(this);
-        title.setText("SA2 Recompiled " + versionName());
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
+        TextView title = Ui.text(this, "SA2 Recompiled", Ui.HEADLINE, Ui.ON_SURFACE);
+        if (Build.VERSION.SDK_INT >= 28) title.setAccessibilityHeading(true);
         col.addView(title);
+        col.addView(Ui.text(this, "Version " + versionName(), Ui.BODY_MEDIUM, Ui.ON_SURFACE_VARIANT), Ui.full(dp(4)));
 
-        mBanner = new TextView(this);
-        mBanner.setTextColor(Color.rgb(0xFF, 0xE4, 0xE4));
-        mBanner.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        mBanner.setTextIsSelectable(true);
-        GradientDrawable card = new GradientDrawable();
-        card.setCornerRadius(dp(12));
-        card.setColor(Color.rgb(0x3A, 0x1C, 0x26));
-        card.setStroke(dp(1), Color.rgb(0xD9, 0x4F, 0x4F));
-        mBanner.setBackground(card);
-        mBanner.setPadding(dp(14), dp(12), dp(14), dp(12));
+        mBanner = Ui.noteCard(this, Ui.ERROR_CONTAINER, Ui.ON_ERROR_CONTAINER);
         mBanner.setVisibility(View.GONE);
-        col.addView(mBanner, Ui.full(dp(12)));
+        col.addView(mBanner, Ui.full(dp(20)));
 
-        mStatus = new TextView(this);
-        mStatus.setTextColor(Color.rgb(0xE0, 0xE6, 0xF0));
-        mStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        mStatus.setTextIsSelectable(true);
-        col.addView(mStatus, Ui.full(dp(12)));
+        mStatus = Ui.noteCard(this, Ui.CONTAINER, Ui.ON_SURFACE);
+        col.addView(mStatus, Ui.full(dp(20)));
 
         mPlay = Ui.button(this, "Play", v -> {
             mAutoPlayDone = true;
@@ -1052,8 +1029,10 @@ public class Sa2SetupActivity extends Activity {
         mChaoNote = new TextView(this);
         mChaoNote.setText("Chao World skips the logos and goes to Chao World after you choose your save, which "
                           + "must have opened Chao World before.");
-        mChaoNote.setTextColor(Color.rgb(0x8A, 0x97, 0xB2));
-        mChaoNote.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        Ui.type(mChaoNote, Ui.BODY_SMALL);
+        mChaoNote.setTextColor(Ui.ON_SURFACE_VARIANT);
+        mChaoNote.setPadding(dp(16), 0, dp(16), 0);
+        mChaoNote.setGravity(Gravity.CENTER_HORIZONTAL);
         mSettings = Ui.button(this, "Game settings", v -> openSettings());
         mZip = Ui.button(this, "Choose game ZIP", v -> pickZip());
         mCheck = Ui.button(this, "Check game folder", v -> {
@@ -1063,48 +1042,36 @@ public class Sa2SetupActivity extends Activity {
         });
         mActions = new LinearLayout(this);
         mActions.setOrientation(LinearLayout.VERTICAL);
-        col.addView(mActions, Ui.full(dp(16)));
+        col.addView(mActions, Ui.full(dp(24)));
 
         mProgress = new TextView(this);
-        mProgress.setTextColor(Color.rgb(0xFF, 0xD8, 0x70));
-        mProgress.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        mProgress.setTextColor(Ui.TERTIARY);
+        Ui.type(mProgress, Ui.BODY_MEDIUM);
         mProgress.setVisibility(View.GONE);
         col.addView(mProgress, Ui.full(dp(12)));
 
-        TextView caption = new TextView(this);
-        caption.setText("Something went wrong?");
-        caption.setTextColor(Color.rgb(0x8A, 0x97, 0xB2));
-        caption.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        col.addView(caption, Ui.full(dp(24)));
-
+        col.addView(Ui.heading(this, "Something went wrong?"), Ui.full(dp(28)));
         mGithub = Ui.button(this, "Report on GitHub", v -> report(GITHUB));
         mCopy = Ui.button(this, "Copy report", v -> report(COPY));
         mSummary = Ui.button(this, "Copy summary", v -> report(SUMMARY));
         mShare = Ui.button(this, "Share report", v -> report(SHARE));
-        Ui.style(mGithub, Ui.QUIET);
-        Ui.style(mCopy, Ui.QUIET);
-        Ui.style(mSummary, Ui.QUIET);
-        Ui.style(mShare, Ui.QUIET);
-        col.addView(mGithub, Ui.full(dp(8)));
-        col.addView(Ui.row(this, mCopy, mSummary, mShare), Ui.full(dp(8)));
-        col.addView(about(), Ui.full(dp(32)));
+        LinearLayout reports = Ui.card(this);
+        reports.setPadding(dp(16), dp(4), dp(16), dp(4));
+        for (Button b : new Button[] {mGithub, mCopy, mSummary, mShare}) {
+            Ui.listButton(b);
+            reports.addView(b, Ui.full(0));
+        }
+        col.addView(reports, Ui.full(dp(8)));
+        col.addView(about(), Ui.full(dp(40)));
 
         mLog = new TextView(this);
-        mLog.setTextColor(Color.rgb(0xA8, 0xB4, 0xC8));
+        mLog.setTextColor(Ui.ON_SURFACE_VARIANT);
         mLog.setTypeface(Typeface.MONOSPACE);
         mLog.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         mLog.setTextIsSelectable(true);
         col.addView(mLog, Ui.full(dp(16)));
 
-        FrameLayout center = new FrameLayout(this);
-        center.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                                                         ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL));
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(Ui.BACKGROUND);
-        Ui.padForSystemBars(scroll);
-        scroll.addView(center, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                                                           ViewGroup.LayoutParams.WRAP_CONTENT));
-        setContentView(scroll);
+        Ui.screen(this, null, col);
         layoutActions(configFile().isFile());
     }
 }

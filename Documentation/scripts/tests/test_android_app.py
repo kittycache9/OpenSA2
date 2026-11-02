@@ -387,8 +387,8 @@ def test_the_chao_world_button_hands_one_launch_the_chao_tweaks():
     assert "mLaunchTweaks = null;" in held and "mLaunchTweaks = null;" in verify
     assert setup.count("mLaunchTweaks = null;") == 3
     installed = re.search(r"if \(installed\) \{(.*?)\} else \{", setup, re.S).group(1)
-    assert ("mActions.addView(mPlay, Ui.full(0));\n            mActions.addView(mChao, Ui.full(dp(8)));\n"
-            "            mActions.addView(mChaoNote, Ui.full(dp(4)));") in installed
+    assert ("mActions.addView(mPlay, Ui.full(0));\n            mActions.addView(mChao, Ui.full(dp(12)));\n"
+            "            mActions.addView(mChaoNote, Ui.full(dp(8)));") in installed
     assert "mChao.setEnabled(!busy);" in setup and "mChao.setEnabled(!mBusy);" in setup
     assert ('"Chao World skips the logos and goes to Chao World after you choose your save, which "\n'
             '                          + "must have opened Chao World before."') in setup

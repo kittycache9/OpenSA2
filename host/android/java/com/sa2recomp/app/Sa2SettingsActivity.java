@@ -49,7 +49,7 @@ import java.util.Map;
  * share sheet with it. Later debug rows go in debugRows.
  */
 public class Sa2SettingsActivity extends Activity {
-    private static final int TEXT = Color.rgb(0xE8, 0xED, 0xF7), NOTE = Color.rgb(0x8A, 0x97, 0xB2);
+    private static final int TEXT = Ui.ON_SURFACE, NOTE = Ui.ON_SURFACE_VARIANT;
 
     private GameSettings mS;
     private int mLong, mShort;
@@ -103,7 +103,7 @@ public class Sa2SettingsActivity extends Activity {
         t.setText(s);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         t.setTextColor(color);
-        if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
+        if (bold) t.setTypeface(Ui.medium());
         return t;
     }
 
@@ -114,18 +114,18 @@ public class Sa2SettingsActivity extends Activity {
 
     /** A rounded card holding one section's rows. */
     private LinearLayout card(LinearLayout col, String title) {
-        col.addView(heading(title), Ui.full(dp(24)));
+        col.addView(heading(title), Ui.full(dp(28)));
         LinearLayout c = Ui.card(this);
         col.addView(c, Ui.full(dp(8)));
         return c;
     }
 
     private void label(LinearLayout c, String s, boolean first) {
-        c.addView(text(s, 15, TEXT, true), Ui.full(first ? 0 : dp(16)));
+        c.addView(Ui.text(this, s, Ui.TITLE_MEDIUM, TEXT), Ui.full(dp(first ? 8 : 20)));
     }
 
     private TextView note(LinearLayout c, String s) {
-        TextView t = text(s, 13, NOTE, false);
+        TextView t = Ui.text(this, s, Ui.BODY_MEDIUM, NOTE);
         c.addView(t, Ui.full(dp(4)));
         return t;
     }
@@ -135,7 +135,7 @@ public class Sa2SettingsActivity extends Activity {
         Button[] bs = new Button[labels.length];
         for (int i = 0; i < labels.length; i++) {
             bs[i] = Ui.button(this, labels[i], clicks[i]);
-            Ui.style(bs[i], Ui.SECONDARY);
+            Ui.style(bs[i], Ui.QUIET);
             bs[i].setMinWidth(0);
             bs[i].setMinimumWidth(0);
         }
@@ -147,10 +147,8 @@ public class Sa2SettingsActivity extends Activity {
     private static void choose(Button[] bs, int chosen) {
         for (int i = 0; i < bs.length; i++) {
             Button b = bs[i];
-            Ui.style(b, i == chosen ? Ui.PRIMARY : Ui.SECONDARY);
-            b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-            b.setMinHeight(Ui.dp(b.getContext(), 44));
-            b.setMinimumHeight(Ui.dp(b.getContext(), 44));
+            Ui.style(b, i == chosen ? Ui.SECONDARY : Ui.QUIET);
+            b.setPadding(Ui.dp(b.getContext(), 8), 0, Ui.dp(b.getContext(), 8), 0);
             b.setSelected(i == chosen);
             if (Build.VERSION.SDK_INT >= 30) b.setStateDescription(i == chosen ? "Selected" : null);
             else b.setContentDescription(b.getText() + (i == chosen ? ", selected" : ""));
@@ -162,7 +160,7 @@ public class Sa2SettingsActivity extends Activity {
         w.setOnCheckedChangeListener((b, on) -> {
             if (!mUpdating) change.onCheckedChanged(b, on);
         });
-        c.addView(w, Ui.full(dp(16)));
+        c.addView(w, Ui.full(dp(8)));
         return w;
     }
 
@@ -186,8 +184,9 @@ public class Sa2SettingsActivity extends Activity {
         b.setId(View.generateViewId());
         label.setLabelFor(b.getId());
         b.setMax((hi - lo) / step);
-        b.setProgressTintList(ColorStateList.valueOf(Color.rgb(0x2B, 0x6B, 0xE8)));
-        b.setThumbTintList(ColorStateList.valueOf(Color.rgb(0x6F, 0x9C, 0xF0)));
+        b.setProgressTintList(ColorStateList.valueOf(Ui.PRIMARY_COLOR));
+        b.setProgressBackgroundTintList(ColorStateList.valueOf(Ui.SECONDARY_CONTAINER));
+        b.setThumbTintList(ColorStateList.valueOf(Ui.PRIMARY_COLOR));
         b.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar s, int p, boolean user) {
@@ -206,17 +205,19 @@ public class Sa2SettingsActivity extends Activity {
 
     private Button action(LinearLayout c, String s, View.OnClickListener click) {
         Button b = Ui.button(this, s, click);
-        Ui.style(b, Ui.SECONDARY);
-        c.addView(b, Ui.full(dp(10)));
+        Ui.listButton(b);
+        c.addView(b, Ui.full(dp(4)));
         return b;
     }
 
     private void buildUi() {
+        LinearLayout bar = Ui.topAppBar(this, "Game settings", null);
         int pad = dp(16);
         Ui.Column col = new Ui.Column(this, dp(640));
-        col.setPadding(pad, pad, pad, pad);
-        col.addView(text("Game settings", 24, Color.WHITE, true));
-        col.addView(text("Changes apply the next time the game starts.", 14, NOTE, false), Ui.full(dp(6)));
+        col.setPadding(pad, 0, pad, dp(32));
+        TextView intro = Ui.text(this, "Changes apply the next time the game starts.", Ui.BODY_MEDIUM, NOTE);
+        intro.setPadding(dp(4), 0, dp(4), 0);
+        col.addView(intro, Ui.full(dp(4)));
 
         // Starting
         LinearLayout st = card(col, "Starting the game");
@@ -266,8 +267,8 @@ public class Sa2SettingsActivity extends Activity {
         mAspect = segments(d, new String[] {"Screen", "21:9", "16:9", "4:3"}, ac);
         label(d, "Resolution", false);
         mResolution = Ui.button(this, "", v -> pickResolution());
-        Ui.style(mResolution, Ui.SECONDARY);
-        d.addView(mResolution, Ui.full(dp(8)));
+        Ui.listButton(mResolution);
+        d.addView(mResolution, Ui.full(dp(0)));
         note(d, "Fewer lines can run faster on a slower phone.");
         label(d, "Low-FPS speed fix (experimental)", false);
         View.OnClickListener[] fc = new View.OnClickListener[GameSettings.FRAMESKIPS.length];
@@ -286,7 +287,7 @@ public class Sa2SettingsActivity extends Activity {
             save();
         });
         note(d, "Keeps the score, time and rings near the middle of a wide picture.");
-        mPictureNote = text("", 14, Color.rgb(0xFF, 0xD8, 0x70), false);
+        mPictureNote = Ui.text(this, "", Ui.BODY_MEDIUM, Ui.TERTIARY);
         d.addView(mPictureNote, Ui.full(dp(16)));
 
         // Touch controls
@@ -306,6 +307,8 @@ public class Sa2SettingsActivity extends Activity {
         note(t, "At 0% the controls are hidden but still work.");
         mLayoutLandscape = action(t, "", v -> editLayout(GameSettings.LANDSCAPE));
         mLayoutPortrait = action(t, "", v -> editLayout(GameSettings.PORTRAIT));
+        Ui.navButton(mLayoutLandscape);
+        Ui.navButton(mLayoutPortrait);
         action(t, "Change what the touch buttons do", v -> pickMap(true, -1));
 
         // Sound: the levels volume-levels plays at (GameSettings.VOLUME_LEVELS); moving a slider turns it on
@@ -340,8 +343,8 @@ public class Sa2SettingsActivity extends Activity {
         // Tweaks: their own screen (Sa2TweaksActivity), with a count of the ones on.
         LinearLayout tw = card(col, "Tweaks");
         mTweaksEntry = Ui.button(this, "", v -> startActivity(new Intent(this, Sa2TweaksActivity.class)));
-        Ui.style(mTweaksEntry, Ui.SECONDARY);
-        tw.addView(mTweaksEntry, Ui.full(dp(12)));
+        Ui.navButton(mTweaksEntry);
+        tw.addView(mTweaksEntry, Ui.full(dp(0)));
         note(tw, "Changes to the game's own behaviour, each off until you turn it on: fixes, assists, look, sound, "
                 + "and Chao. Each one says what it changes, and which ones change your save.");
         // Saves: the game's own saves, imported, exported and restored (SaveTools).
@@ -368,19 +371,8 @@ public class Sa2SettingsActivity extends Activity {
                 .setNegativeButton("Cancel", null)
                 .show());
         Ui.style(reset, Ui.QUIET);
-        Button done = Ui.button(this, "Done", v -> finish());
-        Ui.style(done, Ui.PRIMARY);
-        col.addView(Ui.row(this, reset, done), Ui.full(dp(24)));
-
-        FrameLayout center = new FrameLayout(this);
-        center.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                                                         ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL));
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(Ui.BACKGROUND);
-        Ui.padForSystemBars(scroll);
-        scroll.addView(center, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                                                           ViewGroup.LayoutParams.WRAP_CONTENT));
-        setContentView(scroll);
+        col.addView(reset, Ui.full(dp(32)));
+        Ui.screen(this, bar, col);
     }
 
     // ------------------------------------------------------------ the state shown

@@ -2,17 +2,15 @@ package com.sa2recomp.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.graphics.Color;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.util.Log;
-import android.util.TypedValue;
-import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -21,22 +19,42 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
  * The Tweaks screen: every changes-to-the-game switch, under GameSettings.TWEAK_GROUPS's headings,
- * one card per group, each group's switches in the group's own order (GameSettings.tweakGroups).
- * Opened from Game settings. A switch is its tweak's by name, and the switches are saved in the
- * preferences like every other setting; nothing here names a tweak except the Chao boosts button.
+ * each group's switches in the group's own order (GameSettings.tweakGroups). A group shows as one row
+ * with how many of its tweaks are on and opens in place; the search field shows the tweaks whose
+ * label or note match, across groups. Opened from Game settings. A switch is its tweak's by name, and
+ * the switches are saved in the preferences like every other setting; nothing here names a tweak
+ * except the Chao boosts button.
  */
 public class Sa2TweaksActivity extends Activity {
-    private static final int TEXT = Color.rgb(0xE8, 0xED, 0xF7), NOTE = Color.rgb(0x8A, 0x97, 0xB2);
+    /** One group on screen: its row, the rows of its tweaks, and whether it is open. */
+    private static final class Group {
+        final GameSettings.TweakGroup group;
+        final Ui.ListRow header;
+        final Ui.Icon expand;
+        final LinearLayout body;
+        final Map<String, View> rows = new HashMap<>();
+        boolean open;
+
+        Group(GameSettings.TweakGroup group, Ui.ListRow header, Ui.Icon expand, LinearLayout body) {
+            this.group = group;
+            this.header = header;
+            this.expand = expand;
+            this.body = body;
+        }
+    }
 
     private GameSettings mS;
     private boolean mUpdating;
     private final Map<String, Switch> mSwitches = new HashMap<>();   // each GameSettings.TWEAKS name's switch
-    private TextView mCount;
+    private final List<Group> mGroups = new ArrayList<>();
+    private TextView mCount, mNoMatch;
     private Button mTurnOff, mChaoBoosts;
+    private String mQuery = "";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -62,82 +80,149 @@ public class Sa2TweaksActivity extends Activity {
         update();
     }
 
-    private TextView text(String s, int sp, int color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        t.setTextColor(color);
-        if (bold) t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        return t;
-    }
-
     private void buildUi() {
+        mTurnOff = Ui.button(this, "Turn every tweak off", v -> confirmTurnOff());
+        Ui.style(mTurnOff, Ui.TEXT);
+        mTurnOff.setText("Turn all off");
+        mTurnOff.setContentDescription("Turn every tweak off");
+        LinearLayout bar = Ui.topAppBar(this, "Tweaks", mTurnOff);
+
         int pad = dp(16);
         Ui.Column col = new Ui.Column(this, dp(640));
-        col.setPadding(pad, pad, pad, pad);
+        col.setPadding(pad, 0, pad, dp(32));
 
-        Button back = Ui.button(this, "Game settings", v -> finish());
-        Ui.style(back, Ui.QUIET);
-        col.addView(back, Ui.full(0));
-
-        col.addView(text("Tweaks", 26, Color.WHITE, true), Ui.full(dp(12)));
-        mCount = text("", 14, NOTE, false);
+        mCount = Ui.text(this, "", Ui.BODY_MEDIUM, Ui.ON_SURFACE_VARIANT);
+        mCount.setPadding(dp(4), 0, dp(4), 0);
         col.addView(mCount, Ui.full(dp(4)));
-        col.addView(text("Every tweak is off until you turn it on. Changes apply the next time the game "
-                         + "starts. Replays never use them.", 14, NOTE, false), Ui.full(dp(8)));
 
-        mTurnOff = Ui.button(this, "Turn every tweak off", v -> confirmTurnOff());
-        Ui.style(mTurnOff, Ui.SECONDARY);
-        col.addView(mTurnOff, Ui.full(dp(16)));
+        Ui.SearchField search = new Ui.SearchField(this, "Search tweaks");
+        search.edit.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void afterTextChanged(Editable s) {
+                mQuery = s.toString().trim().toLowerCase(Locale.ROOT);
+                filter();
+            }
+        });
+        col.addView(search.view, Ui.full(dp(16)));
+
+        mNoMatch = Ui.text(this, "No tweak matches that.", Ui.BODY_MEDIUM, Ui.ON_SURFACE_VARIANT);
+        mNoMatch.setPadding(dp(4), 0, dp(4), 0);
+        mNoMatch.setVisibility(View.GONE);
+        col.addView(mNoMatch, Ui.full(dp(24)));
 
         List<String> problems = new ArrayList<>();
         List<GameSettings.TweakGroup> groups =
                 GameSettings.tweakGroups(GameSettings.TWEAK_GROUPS, GameSettings.TWEAKS, problems);
         for (String problem : problems) Log.w("sa2recomp", "sa2 tweaks screen: " + problem);
+        LinearLayout list = Ui.group(this);
         for (GameSettings.TweakGroup group : groups) {
-            col.addView(Ui.heading(this, group.heading), Ui.full(dp(24)));
-            LinearLayout card = Ui.card(this);
+            if (!mGroups.isEmpty()) list.addView(Ui.divider(this), Ui.hairline(this));
+            Ui.Icon expand = new Ui.Icon(this, Ui.Icon.EXPAND, Ui.ON_SURFACE_VARIANT);
+            ImageView end = new ImageView(this);
+            end.setImageDrawable(expand);
+            end.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            LinearLayout body = new LinearLayout(this);
+            body.setOrientation(LinearLayout.VERTICAL);
+            body.setVisibility(View.GONE);
+            Group[] self = new Group[1];
+            Ui.ListRow header = new Ui.ListRow(this, group.heading, "", end, v -> toggleGroup(self[0]));
+            Ui.type(header.headline, Ui.TITLE_MEDIUM);
+            self[0] = new Group(group, header, expand, body);
+            mGroups.add(self[0]);
+            list.addView(header.view);
             for (GameSettings.Tweak tweak : group.tweaks) {
-                if (tweak != group.tweaks.get(0)) card.addView(Ui.divider(this), Ui.full(dp(12)));
-                Switch w = Ui.switchStyle(this, tweak.label);
-                w.setOnCheckedChangeListener((b, on) -> {
-                    if (mUpdating) return;
-                    if (on) mS.tweaksOn.add(tweak.name);
-                    else mS.tweaksOn.remove(tweak.name);
-                    save();
-                });
-                mSwitches.put(tweak.name, w);
-                card.addView(w, Ui.full(dp(12)));
-                TextView note = text(tweak.description, 13, NOTE, false);
-                card.addView(note, Ui.full(dp(2)));
+                View row = tweakRow(tweak);
+                self[0].rows.put(tweak.name, row);
+                body.addView(row);
             }
             if ("Chao".equals(group.heading)) {
                 mChaoBoosts = Ui.button(this, "Turn on the Chao boosts", v -> chaoBoosts());
                 Ui.style(mChaoBoosts, Ui.SECONDARY);
-                card.addView(Ui.divider(this), Ui.full(dp(12)));
-                card.addView(mChaoBoosts, Ui.full(dp(12)));
+                LinearLayout.LayoutParams lp = Ui.full(dp(4));
+                lp.leftMargin = dp(16);
+                lp.rightMargin = dp(16);
+                lp.bottomMargin = dp(16);
+                body.addView(mChaoBoosts, lp);
             }
-            col.addView(card, Ui.full(dp(8)));
+            list.addView(body);
         }
+        col.addView(list, Ui.full(dp(16)));
+        Ui.screen(this, bar, col);
+    }
 
-        FrameLayout center = new FrameLayout(this);
-        center.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                                                         ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL));
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(Ui.BACKGROUND);
-        Ui.padForSystemBars(scroll);
-        scroll.addView(center, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                                                           ViewGroup.LayoutParams.WRAP_CONTENT));
-        setContentView(scroll);
+    /** A tweak's row: its label, the first two lines of its note (tap the note for all of it), and its
+     * switch; a tap anywhere else on the row flips the switch. */
+    private View tweakRow(GameSettings.Tweak tweak) {
+        Switch w = Ui.switchStyle(this, "");
+        w.setContentDescription(tweak.label);
+        w.setOnCheckedChangeListener((b, on) -> {
+            if (mUpdating) return;
+            if (on) mS.tweaksOn.add(tweak.name);
+            else mS.tweaksOn.remove(tweak.name);
+            save();
+        });
+        mSwitches.put(tweak.name, w);
+        Ui.ListRow row = new Ui.ListRow(this, tweak.label, tweak.description, w, v -> w.toggle());
+        row.view.setPadding(dp(16), dp(10), dp(16), dp(10));
+        TextView note = row.supporting;
+        note.setMaxLines(2);
+        note.setEllipsize(TextUtils.TruncateAt.END);
+        note.setOnClickListener(v -> {
+            boolean open = note.getMaxLines() == 2;
+            note.setMaxLines(open ? Integer.MAX_VALUE : 2);
+            note.setEllipsize(open ? null : TextUtils.TruncateAt.END);
+        });
+        return row.view;
+    }
+
+    private void toggleGroup(Group g) {
+        if (!mQuery.isEmpty()) return;
+        g.open = !g.open;
+        g.body.setVisibility(g.open ? View.VISIBLE : View.GONE);
+        g.expand.rotate(g.open ? 180 : 0);
+        g.header.view.setContentDescription(g.group.heading + ", " + g.header.supporting.getText()
+                                            + (g.open ? ", open" : ", closed"));
+    }
+
+    /** With a query, every group that holds a match is open with only the matching tweaks; without
+     * one, each group is as the player left it. */
+    private void filter() {
+        int shown = 0;
+        for (Group g : mGroups) {
+            int matches = 0;
+            for (GameSettings.Tweak t : g.group.tweaks) {
+                boolean hit = mQuery.isEmpty() || t.label.toLowerCase(Locale.ROOT).contains(mQuery)
+                              || t.description.toLowerCase(Locale.ROOT).contains(mQuery);
+                g.rows.get(t.name).setVisibility(hit ? View.VISIBLE : View.GONE);
+                if (hit) matches++;
+            }
+            boolean searching = !mQuery.isEmpty();
+            g.header.view.setVisibility(searching && matches == 0 ? View.GONE : View.VISIBLE);
+            g.body.setVisibility(searching ? (matches > 0 ? View.VISIBLE : View.GONE) : g.open ? View.VISIBLE : View.GONE);
+            if (mChaoBoosts != null && g.body == mChaoBoosts.getParent()) mChaoBoosts.setVisibility(searching ? View.GONE : View.VISIBLE);
+            g.expand.rotate(searching || g.open ? 180 : 0);
+            shown += matches;
+        }
+        mNoMatch.setVisibility(shown == 0 ? View.VISIBLE : View.GONE);
     }
 
     private void update() {
         mUpdating = true;
         int total = GameSettings.TWEAKS.length, on = 0;
         for (GameSettings.Tweak t : GameSettings.TWEAKS) if (mS.tweaksOn.contains(t.name)) on++;
-        mCount.setText(on == 0 ? "All " + total + " are off" : on + " of " + total + " on");
+        mCount.setText(on == 0 ? "All " + total + " tweaks are off. Each changes the game only once you turn it on."
+                               : on + " of " + total + " tweaks on. Changes apply the next time the game starts.");
         for (Map.Entry<String, Switch> e : mSwitches.entrySet()) e.getValue().setChecked(mS.tweaksOn.contains(e.getKey()));
+        for (Group g : mGroups) {
+            int n = 0;
+            for (GameSettings.Tweak t : g.group.tweaks) if (mS.tweaksOn.contains(t.name)) n++;
+            g.header.supporting.setText(n == 0 ? g.group.tweaks.size() + " tweaks, all off"
+                                               : n + " of " + g.group.tweaks.size() + " on");
+            g.header.supporting.setVisibility(View.VISIBLE);
+        }
         mTurnOff.setEnabled(on > 0);
+        mTurnOff.setVisibility(on > 0 ? View.VISIBLE : View.INVISIBLE);
         if (mChaoBoosts != null)
             mChaoBoosts.setEnabled(!mS.tweaksOn.containsAll(Arrays.asList(GameSettings.CHAO_BOOSTS)));
         mUpdating = false;
