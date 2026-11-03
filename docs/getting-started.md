@@ -133,7 +133,7 @@ These tools do not form a fresh-checkout build command yet. Keep generated code,
 The translation reads `private/exe/sonic2app-unpacked.exe`, a copy of your own `sonic2app.exe` with the Steam DRM wrapper removed. The build tools accept only the file whose SHA-256 `tools/pins.json` pins, so make it exactly this way:
 
 - Steamless 3.1.0.5 (`Steamless.CLI.exe` from the [release](https://github.com/atom0s/Steamless/releases/tag/v3.1.0.5)), with its default options and no flags.
-- Run under Proton Experimental, whose wine-mono 11.3.0 is the .NET runtime that produces the pinned file. Steamless run on Microsoft .NET Framework or .NET 8 with the same options writes a file with a different hash, and the build refuses it.
+- Run under Proton Experimental, whose wine-mono 11.3.0 is the .NET runtime that produces the pinned file. Steamless run on Microsoft .NET with the same options writes a file that differs only in two section names: `.data` and `.rsrc` where the pinned file has `.dataa` and `.rsrca`. `tools/normalize_unpacked.py` turns that file into the pinned one (step 4), so either runtime works.
 
 On Linux, with Steam and Proton Experimental installed:
 
@@ -161,14 +161,17 @@ On Linux, with Steam and Proton Experimental installed:
    cd -
    ```
 
-4. Steamless writes `private/exe/sonic2app.exe.unpacked.exe`. Rename it and check it against the pin. The hash must be `c97b116fbd1d64108cbc8ec403b4a59ba6f815159b9a0ad896668d6c19c1bfe9`.
+4. Steamless writes `private/exe/sonic2app.exe.unpacked.exe`. Rename it, normalize it, and check it against the pin. The hash must be `c97b116fbd1d64108cbc8ec403b4a59ba6f815159b9a0ad896668d6c19c1bfe9`.
 
    ```bash
    mv private/exe/sonic2app.exe.unpacked.exe "$SA2_EXE_UNPACKED"
+   python3 tools/normalize_unpacked.py "$SA2_EXE_UNPACKED"
    sha256sum "$SA2_EXE_UNPACKED"
    ```
 
-If your Steam library is somewhere else, change the paths in steps 1 and 3. If the hash in step 4 differs, check the Steamless version and that you ran it under Proton, not Windows .NET.
+   The normalize step leaves the pinned file as it is. It renames the two sections of the file Steamless writes on Microsoft .NET (`ebb53fa1…`) and checks the result is the pinned file. It refuses any other file and leaves it unchanged.
+
+If your Steam library is somewhere else, change the paths in steps 1 and 3. If step 4 refuses the file, check the Steamless version and its options.
 
 ## Test a locally assembled desktop build
 
