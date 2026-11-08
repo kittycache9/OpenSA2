@@ -545,9 +545,25 @@ def test_the_receipt_carries_no_image_bytes(tmp_path):
 # ------------------------------------------------------------------ the tracked receipt
 
 
-@pytest.mark.skipif(not (ROOT / D.SHIPPED).is_file() or not (ROOT / D.UNPACKED).is_file(),
-                    reason="the executables are the user's own and live under private/")
+HAVE_EXES = (ROOT / D.SHIPPED).is_file() and (ROOT / D.UNPACKED).is_file()
+
+
+@pytest.mark.skipif(not HAVE_EXES or not (ROOT / D.TICK_RECEIPT).is_file(),
+                    reason="the executables are the user's own and live under private/, and the "
+                           "full measurement reads replay run records a fresh checkout lacks")
 def test_the_tracked_receipt_is_a_fresh_measurement():
     receipt, companion = D.measure(ROOT)
     assert D.check(ROOT, receipt, companion) == []
     assert receipt["verdict"] == "differs" and receipt["conclusive"] is True
+
+
+@pytest.mark.skipif(not HAVE_EXES or not (ROOT / "private/generated/s3/arms/arms.next.jsonl").is_file(),
+                    reason="needs the user's executables and a translated image "
+                           "(tools/s4/rebuild_image.py)")
+def test_the_companion_needs_no_replay_run_records(monkeypatch):
+    def no_runs(root):
+        raise AssertionError("the companion read a replay run record")
+    monkeypatch.setattr(D, "replay_runs", no_runs)
+    _, companion = D.measure(ROOT, with_replays=False)
+    pinned = json.loads((ROOT / D.RECEIPT).read_text())["companion"]["sha256"]
+    assert D.digest(companion) == pinned

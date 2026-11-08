@@ -4,7 +4,11 @@ between the shipped file and the unpacked one?
 
 Subtitle: `.venv/bin/python tools/s7/drm_unwrap.py` writes
 `Documentation/receipts/s7-drm-unwrap-v1.json`; `--check` computes it again and fails when the
-tracked receipt, or its private companion, says anything else.
+tracked receipt, or its private companion, says anything else. `--companion` writes only the
+companion (the read-set `tools/s7/text_readset.py` checks every release build against), from the
+two executables alone, and refuses unless its sha256 is the one the tracked receipt holds: a fresh
+checkout has none of the replay run records the full measurement reads, and the companion never
+depended on them.
 
 The question is the user's (`Documentation/decisions/2026-10-09-S5-user-rulings.md`, item 3):
 "compare the bytes the runtime reads at run time (data sections, and any code bytes the emulated
@@ -379,7 +383,10 @@ def emulated_chain(by_kind: dict, sites: list[dict], site_differs: dict[int, boo
 
 
 def measure(root: Path, tables: list[dict] | None = None, relocated: set[int] | None = None,
-            sites: list[dict] | None = None, tool_root: Path | None = None) -> tuple[dict, dict]:
+            sites: list[dict] | None = None, tool_root: Path | None = None,
+            with_replays: bool = True) -> tuple[dict, dict]:
+    """The receipt and its companion. `with_replays=False` skips the replay run records, which
+    only the receipt reads; the companion comes out the same (`--companion`)."""
     tool_root = root if tool_root is None else tool_root
     pins = json.loads((root / PINS).read_text())["executables"]
     a_bytes, b_bytes = (root / SHIPPED).read_bytes(), (root / UNPACKED).read_bytes()
@@ -445,7 +452,7 @@ def measure(root: Path, tables: list[dict] | None = None, relocated: set[int] | 
     union_total, union_diff = differing(va, vb, lo, jt_ranges + em_ranges)
 
     replays, problems = {}, []
-    for name, records in replay_runs(root).items():
+    for name, records in (replay_runs(root) if with_replays else {}).items():
         runs, seen = [], set()
         for rec in records:
             path = root / rec["path"]
@@ -506,7 +513,8 @@ def measure(root: Path, tables: list[dict] | None = None, relocated: set[int] | 
                    "unpacked": {"path": UNPACKED, "sha256": b_sha},
                    "pins": {"path": PINS, "sha256": sha256(root / PINS), "match": True},
                    "replays": {"path": REPLAYS, "sha256": sha256(root / REPLAYS)},
-                   "tick_replay": {"path": TICK_RECEIPT, "sha256": sha256(root / TICK_RECEIPT)},
+                   "tick_replay": {"path": TICK_RECEIPT, "sha256": sha256(root / TICK_RECEIPT)
+                                   if with_replays else None},
                    "tools": {t: sha256(tool_root / t) for t in TOOLS}},
         "runtime_maps": {k: v or "yes" for k, v in refusals.items()},
         "regions": [{"va": f"{g['lo']:#010x}", "end": f"{g['hi']:#010x}", "kind": g["kind"],
@@ -619,7 +627,21 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--check", action="store_true",
                         help="compute again and fail if the tracked receipt or companion differs")
+    parser.add_argument("--companion", action="store_true",
+                        help="write only the companion, without replay run records, and only if "
+                             "it is the one the tracked receipt pins")
     args = parser.parse_args()
+    if args.companion:
+        _, companion = measure(ROOT, with_replays=False)
+        want = json.loads((ROOT / RECEIPT).read_text())["companion"]["sha256"]
+        if digest(companion) != want:
+            print(f"the companion computed here is {digest(companion)[:16]}, not the "
+                  f"{want[:16]} {RECEIPT} pins; nothing written")
+            return 1
+        (ROOT / COMPANION).parent.mkdir(parents=True, exist_ok=True)
+        (ROOT / COMPANION).write_text(json.dumps(companion, indent=1, sort_keys=True))
+        print(f"wrote {COMPANION}: the companion {RECEIPT} pins")
+        return 0
     receipt, companion = measure(ROOT)
     if args.check:
         problems = check(ROOT, receipt, companion)
