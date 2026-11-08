@@ -1,0 +1,143 @@
+{
+ "schema": "sa2-method-records/v1",
+ "decisions": [
+  {
+   "id": "D1",
+   "title": "Track the extra blocks as a projection, without timings",
+   "situation": "The list of blocks the lift missed is evidence from running the program, and nothing can regenerate it. It lived in an ignored folder, and a regeneration once dropped a reviewed entry without any gate failing.",
+   "choice": "Keep the decision-bearing fields (address, range, owner, reason) in the tracked tree, drop timings and working directories, and let a restore command write the generated state back from it.",
+   "evidence": [
+    "Documentation/lifted-extras.json",
+    "tools/s4/track_extra_functions.py"
+   ],
+   "reverse_if": "The record changes on regeneration without a decision changing, or a field a build reads is dropped from it."
+  },
+  {
+   "id": "D2",
+   "title": "Compile the pass helpers on their bare file names",
+   "situation": "The pass stamps each helper module's hash into every module it rewrites, and the compiler wrote the helper's absolute source path into that module, so every lifted module's hash depended on where the checkout lived.",
+   "choice": "Compile every helper from its own folder on its bare file name, in one shared function, and build the helpers whenever they are missing.",
+   "evidence": [
+    "tools/spike/spikelib.py",
+    "Documentation/scripts/tests/test_fresh_checkout_lift.py"
+   ],
+   "reverse_if": "A compiler or flag change makes the helper's text depend on anything outside its source again, which the test's two-folder comparison would show."
+  },
+  {
+   "id": "D3",
+   "title": "Declare the faster floating-point mode as a deviation",
+   "situation": "The original relies on an 80-bit register-stack floating-point unit, and holding those values in 64-bit floats is much faster on the target devices but cannot be shown identical everywhere.",
+   "choice": "Desktop development builds use the faster mode, the native mode stays available for fidelity checks, and the deviation is stated wherever it applies.",
+   "evidence": [
+    "docs/architecture.md",
+    "docs/status.md"
+   ],
+   "reverse_if": "Wider recorded-run comparisons show the faster mode changes results that matter, or the native mode becomes fast enough to ship."
+  }
+ ],
+ "cases": [
+  {
+   "id": "C1",
+   "class": "reproducibility",
+   "stage": "lift",
+   "symptom": "No clone could match a recorded lifted-module hash, even when its inputs were identical.",
+   "root_cause": "The compiler wrote the helper source's absolute path into the helper module, and the pass stamped that module's hash into every lifted module.",
+   "fix_pattern": "Compile helpers on their bare file names, from their own folders, in one function.",
+   "fix": "tools/spike/spikelib.py",
+   "detector": "Documentation/scripts/tests/test_fresh_checkout_lift.py"
+  },
+  {
+   "id": "C2",
+   "class": "reproducibility",
+   "stage": "lift",
+   "symptom": "The first lift in a fresh checkout failed in every worker with a missing file.",
+   "root_cause": "The pass reads its helper modules but nothing built them; they existed only where an earlier run had made them.",
+   "fix_pattern": "Build the helpers when they are missing, and before reading the fingerprint that names them.",
+   "fix": "tools/s3/whole_image/common.py",
+   "detector": "Documentation/scripts/tests/test_fresh_checkout_lift.py"
+  },
+  {
+   "id": "C3",
+   "class": "control-flow-coverage",
+   "stage": "lift",
+   "symptom": "The extra blocks could not be rebuilt in a clean checkout, because their generated state existed only in the ignored workspace.",
+   "root_cause": "The tracked projection kept the decisions but nothing could write the generated state back from it.",
+   "fix_pattern": "Make the projection reversible, with a restore command that checks it projects back to the record.",
+   "fix": "tools/s4/track_extra_functions.py",
+   "detector": "Documentation/scripts/tests/test_fresh_checkout_lift.py"
+  },
+  {
+   "id": "C4",
+   "class": "reproducibility",
+   "stage": "lift",
+   "symptom": "Rebuilding the translated image in a clean checkout failed on every extra block with no such file or directory.",
+   "root_cause": "The tool that rebuilds the image assumed output folders that only the tool that first lifted the extras had created.",
+   "fix_pattern": "A tool creates the folders it writes into, and a clean-clone run is the test that finds the ones it does not.",
+   "fix": "tools/s4/rebuild_image.py",
+   "detector": null,
+   "detector_gap": "No test runs the rebuild from an empty workspace; the check is a manual clean-clone run."
+  },
+  {
+   "id": "C5",
+   "class": "reproducibility",
+   "stage": "link",
+   "symptom": "A release build stopped in a clean checkout because a companion file of a receipt was missing.",
+   "root_cause": "Only the full measurement wrote the companion, and that measurement reads recorded run files that a clean checkout never has, though the companion does not depend on them.",
+   "fix_pattern": "Give a record a mode that writes it from its true inputs, and refuse unless its hash is the one the receipt pins.",
+   "fix": "tools/s7/drm_unwrap.py",
+   "detector": "Documentation/scripts/tests/test_drm_unwrap.py"
+  },
+  {
+   "id": "C6",
+   "class": "process",
+   "stage": "link",
+   "symptom": "Following a tool's own advice to regenerate a table produced a table with none of the extra blocks, which the next build refused.",
+   "root_cause": "The advice omitted an option, and the option's absence silently meant the extras were not modules.",
+   "fix_pattern": "Default a missing option to the value the rest of the pipeline uses, and print the default it chose.",
+   "fix": "tools/s4/mb_edges.py",
+   "detector": null,
+   "detector_gap": "No test regenerates the table from the tool's own hint."
+  },
+  {
+   "id": "C7",
+   "class": "reproducibility",
+   "stage": "link",
+   "symptom": "Two lifts with identical module hashes linked binaries that differed in one table row.",
+   "root_cause": "Where one target was reached from two places, the tool kept the first it read, and the read order followed the order a parallel lift wrote its log.",
+   "fix_pattern": "Choose among equal candidates by a total order on their content, never by the order they arrived.",
+   "fix": "tools/s4/mb_edges.py",
+   "detector": null,
+   "detector_gap": "No test compares two parallel runs for byte equality of the table."
+  },
+  {
+   "id": "C8",
+   "class": "verification",
+   "stage": "verify",
+   "symptom": "A test failed on every clean checkout, so a real failure and a missing input looked the same.",
+   "root_cause": "The test needed a receipt and recorded files that only the maintainer's workspace had, and it checked only for the executables.",
+   "fix_pattern": "A test that needs local inputs skips by naming every input it needs, and a second test covers the part that needs none.",
+   "fix": "Documentation/scripts/tests/test_drm_unwrap.py",
+   "detector": "Documentation/scripts/tests/test_drm_unwrap.py"
+  },
+  {
+   "id": "C9",
+   "class": "control-flow-coverage",
+   "stage": "link",
+   "symptom": "A regeneration dropped a reviewed dispatch exception, a driven run fell from 369 loop iterations to 1, and every gate passed.",
+   "root_cause": "The exceptions lived in an ignored generated file, and no gate compared them with a tracked record.",
+   "fix_pattern": "Track decisions that no tool can rediscover, and gate the generated file against them.",
+   "fix": "Documentation/dispatch-exceptions.json",
+   "detector": "Documentation/scripts/check_dispatch_exceptions.py"
+  },
+  {
+   "id": "C10",
+   "class": "verification",
+   "stage": "link",
+   "symptom": "A rebuild reported every count correctly and the program went on linking the old objects.",
+   "root_cause": "The restage step used a tool's default tag, not the tag that the link reads, and counts alone could not show a stale file.",
+   "fix_pattern": "Check that each linked object is the file that was just rebuilt, not that the counts look right.",
+   "fix": "tools/s4/rebuild_image.py",
+   "detector": "Documentation/scripts/tests/test_fold_code_stamp.py"
+  }
+ ]
+}
