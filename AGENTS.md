@@ -7,6 +7,9 @@ Preserve upstream attribution and licenses.
 Documentation screenshots belong under `docs/screenshots/`. Inspect the visible
 content for personal details and strip PNG metadata before publishing them.
 
+To recompile a game, or to learn how OpenSA2 was built, read
+`docs/method/README.md`. Agents load `.agents/skills/recompile-a-game/SKILL.md`.
+
 Read README.md, docs/architecture.md, and docs/status.md before changing a subsystem.
 Run `python3 tools/public_check.py` before committing. Create `private/generated`
 before importing the build tools or running the synthetic installer tests.
