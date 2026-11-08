@@ -10,7 +10,7 @@ A claim never goes above the highest level of evidence the project has reached. 
 
 ## Claim vocabulary
 
-A status claim uses one of these phrases. Each names a level of evidence, from weakest to strongest.
+A status claim uses one of these phrases. Each names a level of evidence, roughly from weakest to strongest; [verification.md](verification.md) says what stands behind each.
 
 | Phrase | It means | It does not mean |
 | --- | --- | --- |
