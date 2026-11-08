@@ -15,6 +15,7 @@ import json
 import re
 import struct
 import subprocess
+import sys
 import zlib
 from pathlib import Path
 from urllib.parse import unquote
@@ -174,6 +175,10 @@ def check(root: Path, paths: list[Path], terms: list[str]) -> list[str]:
     ignore = (root / ".gitignore").read_text().splitlines()
     if not {"/private", "/build"}.issubset(ignore):
         failures.append(".gitignore must ignore /private and /build")
+    # The method pages and their records (tools/method_check.py).
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import method_check  # noqa: PLC0415
+    failures.extend(method_check.run_all(root))
     return failures
 
 
