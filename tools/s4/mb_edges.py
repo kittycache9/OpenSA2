@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -215,7 +216,12 @@ def decode_edges(image: bytes, ranges: dict[int, tuple[int, int]],
         seen = found[target]
         kinds = {e["kind"] for e in seen}
         kind = EDGE_JMP if kinds == {EDGE_JMP} else min(k for k in kinds if k != EDGE_JMP)
-        pick = next(e for e in seen if e["kind"] == kind)
+        # The lowest (source, module) of that kind, not the first seen: `seen` follows the
+        # order modules were read, which follows the lift logs' order, and a parallel lift
+        # writes its log in the order workers finish. A re-lift that matched every module's
+        # IR still linked a binary two bytes off, in the source of one row reached by two.
+        pick = min((e for e in seen if e["kind"] == kind),
+                   key=lambda e: (e["source"], e["module"]))
         # The runtime row is one per target, but every edge into it takes that row's verdict, so
         # each distinct (source, kind) is kept for the refused census. Collapsing them to `pick`
         # hid 0x008294d8's `jne 0082CCC5h` (an MXCSR/x87-mask test) behind 0x008294a7's `je`
@@ -224,7 +230,7 @@ def decode_edges(image: bytes, ranges: dict[int, tuple[int, int]],
         # fall-through is one jcc-taken edge), from the first module that records it: an arm
         # repeats its owner's rows.
         sources: dict[int, dict] = {}
-        for e in sorted(seen, key=lambda e: (e["kind"] == EDGE_JMP, e["kind"])):
+        for e in sorted(seen, key=lambda e: (e["kind"] == EDGE_JMP, e["kind"], e["module"])):
             sources.setdefault(e["source"], e)
         edges.append({"target": target, "source": pick["source"], "kind": kind,
                       "kind_name": EDGE_NAMES[kind], "insn": pick["insn"],
@@ -346,7 +352,8 @@ def main() -> None:
     ap.add_argument("--arms-tag", default=None, help="the arms lift log, when the tag has arms")
     ap.add_argument("--allow-from", type=Path, default=None,
                     help="tools/s4/lift_extra.py's state JSON: every block it registered "
-                         "becomes a named dispatch exception with its recorded reason")
+                         "becomes a named dispatch exception with its recorded reason. "
+                         "Defaults to the tag's own state when it exists")
     ap.add_argument("--reviewed", type=Path, default=REVIEWED,
                     help="the tracked reviewed-exception record; pass an empty path to "
                          "skip it, which is how the falsification in "
@@ -363,6 +370,14 @@ def main() -> None:
     ap.add_argument("--no-object-check", action="store_true",
                     help="emit even when the logs and the objects name different module sets")
     args = ap.parse_args()
+    if args.allow_from is None:
+        # Left out, the extras were silently not modules here: a table with no extra's
+        # edges and none of their exceptions, which the link then refuses only by luck of
+        # a reviewed exception the table lacks. The tag's own state is the right default.
+        own = C.GEN / "s4" / "link" / f"extra_functions.{args.tag}.json"
+        if own.is_file():
+            args.allow_from = own
+            print(f"--allow-from defaults to {own.relative_to(C.ROOT)}")
 
     OUT.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
@@ -470,7 +485,10 @@ def main() -> None:
            "modules": len(ranges) - extra_ranges, "extra_modules_decoded": extra_ranges, "edges": len(edges), "by_kind": by_kind,
            "dispatchable_under_reached": by_kind.get("jmp", 0),
            "conflicts": len(conflicts), "conflicts_head": conflicts[:20],
-           "allow_from": str(args.allow_from) if args.allow_from else None,
+           # Lexically relative to the checkout, so the record names no working directory.
+           "allow_from": (str(Path(os.path.abspath(args.allow_from)).relative_to(C.ROOT))
+                          if Path(os.path.abspath(args.allow_from)).is_relative_to(C.ROOT)
+                          else str(args.allow_from)) if args.allow_from else None,
            "named_exceptions": allowed, "reviewed_exceptions": reviewed,
            "named_exception_targets": [f"0x{e['target']:08x}" for e in edges if e.get("allow")],
            "refused": refused,
