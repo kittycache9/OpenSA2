@@ -34,6 +34,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import s2lib as L  # noqa: E402
 import probes as P  # noqa: E402
+sys.path.insert(0, str(HERE.parents[1] / "spike"))
+import spikelib as S  # noqa: E402
 
 ROOT = L.ROOT
 GEN = L.GEN
@@ -75,11 +77,9 @@ def build_tool(name: str, sources: list[Path], extra: list[str] | None = None) -
 
 
 def compile_int_helper() -> dict:
-    cmd = [L.ZIG, "cc"] + L.TARGET + ["-O1", "-g0", "-S", "-emit-llvm", "-fno-discard-value-names",
-                                      str(HERE / "x87_int.c"), "-o", str(INT_HELPER_LL)]
-    p = L.sh(cmd, cwd=BUILD, env=L.zig_env())
-    if p.returncode:
-        raise SystemExit(f"x87_int.c -> IR failed: {p.stderr}")
+    INT_HELPER_LL.unlink(missing_ok=True)
+    S.helper_ir(HERE / "x87_int.c", INT_HELPER_LL)
+    cmd = [str(S.ZIG), "cc"] + S.HELPER_IR_FLAGS + ["x87_int.c", "-o", str(INT_HELPER_LL)]
     return {"command": L.cmdline(cmd), "out": L.rel(INT_HELPER_LL), "sha256": L.sha(INT_HELPER_LL)}
 
 

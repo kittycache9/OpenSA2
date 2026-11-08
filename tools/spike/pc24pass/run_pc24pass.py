@@ -113,10 +113,8 @@ def fresh_cache_compile(src: Path, out: Path) -> tuple[bool, float, str]:
 # ---------------------------------------------------------------- 1. helper
 def build_helper() -> dict:
     helper_ll = PGEN / "pc_round.ll"
-    cmd = [ZIG, "cc"] + TARGET + ["-O1", "-g0", "-S", "-emit-llvm", "-fno-discard-value-names", str(HERE / "pc_round.c"), "-o", str(helper_ll)]
-    p = sh(cmd, cwd=PGEN / "scratch")
-    if p.returncode != 0:
-        raise SystemExit(f"helper IR compile failed: {p.stderr}")
+    helper_ll.unlink(missing_ok=True)
+    S.helper_ir(HERE / "pc_round.c", helper_ll)
     test_bin = PGEN / "scratch" / "pc_round_test"
     tcmd = [ZIG, "cc", "-O1", "-w", str(HERE / "pc_round_test.c"), str(HERE / "pc_round.c"), "-lm", "-o", str(test_bin)]
     p = sh(tcmd, cwd=PGEN / "scratch")

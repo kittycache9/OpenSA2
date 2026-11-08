@@ -21,6 +21,29 @@ TIMELINE = ROOT / "tools" / "spike" / "timeline.jsonl"
 FUNCTIONS = ROOT / "private" / "generated" / "spike" / "functions.json"
 ZIG = ROOT / "private" / "predecessor-tools" / "zig" / "zig-x86_64-linux-0.15.2" / "zig"
 
+# The flags every PC24 helper module (pc_round.c, x87_int.c) is compiled to IR with.
+HELPER_IR_FLAGS = ["-target", "x86_64-linux-musl", "-O1", "-g0", "-S", "-emit-llvm",
+                   "-fno-discard-value-names"]
+
+
+def helper_ir(src: Path, out: Path) -> Path:
+    """Compile a PC24 helper's C source to IR at `out` when it is missing or older than `src`.
+
+    The compile runs in the source's folder on its bare file name. Given a path, clang
+    writes it into the module's `ModuleID` and `source_filename`, and the pass stamps the
+    helper's sha256 into the header of every module it rewrites, so an absolute path made
+    every lifted module's hash depend on where the checkout lives: no fresh clone could
+    match a recorded hash. On its bare name the helper is the same bytes everywhere."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
+        return out
+    p = subprocess.run([str(ZIG), "cc"] + HELPER_IR_FLAGS + [src.name, "-o", str(out)],
+                       capture_output=True, text=True, cwd=str(src.parent))
+    if p.returncode:
+        raise SystemExit(f"{src.name} -> IR failed:\n{p.stderr}")
+    return out
+
+
 COMPILERS = {
     "c_strict": [str(ZIG), "cc", "-c", "-w", "-o", "/dev/null"],
     "c_gnu89": [str(ZIG), "cc", "-std=gnu89", "-c", "-w", "-o", "/dev/null"],

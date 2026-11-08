@@ -139,6 +139,7 @@ def main() -> None:
                          "map's size under-reports (S3_INPUTS section 1), here as a "
                          "whole-set switch so the two can be compared rather than argued.")
     args = ap.parse_args()
+    C.helpers()
 
     lldir = C.LIFT / args.tag
     lldir.mkdir(parents=True, exist_ok=True)

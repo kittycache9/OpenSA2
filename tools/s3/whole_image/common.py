@@ -42,6 +42,14 @@ REMILL_INC = REMILL_PREFIX / "include"
 HELPER_LL = GEN / "spike" / "pc24pass" / "pc_round.ll"
 INT_HELPER_LL = GEN / "s2" / "corpus_run" / "helper" / "x87_int.ll"
 
+
+def helpers() -> None:
+    """Build both PC24 helper modules when missing or stale. Every lift splices them in,
+    and a fresh checkout has neither; the pass reads them, it does not make them."""
+    import spikelib  # noqa: PLC0415  tools/spike/spikelib.py, on the path above
+    spikelib.helper_ir(ROOT / "tools" / "spike" / "pc24pass" / "pc_round.c", HELPER_LL)
+    spikelib.helper_ir(ROOT / "tools" / "s2" / "patch" / "x87_int.c", INT_HELPER_LL)
+
 IMAGE_BASE = 0x00400000
 REGIONS = ("game", "crt", "cri", "other")
 

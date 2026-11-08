@@ -52,9 +52,6 @@ HELPER_LL = GEN / "spike" / "pc24pass" / "pc_round.ll"
 # corpus run's own output so this pipeline does not depend on another unit having run.
 INT_HELPER_SRC = ROOT / "tools" / "s2" / "patch" / "x87_int.c"
 INT_HELPER_LL = OUT / "helper" / "x87_int.ll"
-# tools/s2/patch/run_patch.py `compile_int_helper`, flag for flag.
-INT_HELPER_CC = ["cc", "-target", "x86_64-linux-musl", "-O1", "-g0", "-S", "-emit-llvm",
-                 "-fno-discard-value-names"]
 
 # The eleven S1/S2 functions already lifted by tools/s2/wrap (re-used, not re-lifted).
 WRAP_LIFT = GEN / "s2" / "wrap" / "lift"
@@ -62,14 +59,7 @@ WRAP_LIFT = GEN / "s2" / "wrap" / "lift"
 
 def int_helper_ll() -> Path:
     """Compile tools/s2/patch/x87_int.c to IR if it is missing or older than its source."""
-    INT_HELPER_LL.parent.mkdir(parents=True, exist_ok=True)
-    if (not INT_HELPER_LL.exists()
-            or INT_HELPER_LL.stat().st_mtime < INT_HELPER_SRC.stat().st_mtime):
-        cmd = [str(S.ZIG)] + INT_HELPER_CC + [str(INT_HELPER_SRC), "-o", str(INT_HELPER_LL)]
-        p = subprocess.run(cmd, capture_output=True, text=True, cwd=str(INT_HELPER_LL.parent))
-        if p.returncode:
-            raise SystemExit(f"x87_int.c -> IR failed:\n{p.stderr}")
-    return INT_HELPER_LL
+    return S.helper_ir(INT_HELPER_SRC, INT_HELPER_LL)
 
 
 def function_map() -> dict[int, dict]:
