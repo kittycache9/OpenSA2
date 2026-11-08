@@ -8,6 +8,12 @@ restaged, and how many objects actually changed reported by content hash.
     source tools/env.sh
     .venv/bin/python tools/s4/rebuild_image.py [--jobs 16]
 
+On a fresh checkout this one command builds the whole image: it restores the extras'
+state from `Documentation/lifted-extras.json` (`track_extra_functions.py --restore`) and
+writes the arm work list from the map build (`tools/s3/arms/armlist.py`) when either is
+missing, and builds the PC24 helpers through `lift_all.py`. Check the result against
+`Documentation/receipts/lift-ir-v1.json` with `tools/s4/lift_ir_receipt.py`.
+
 Why
 ---
 The objects are built by three tools and live in three places:
@@ -312,8 +318,14 @@ def main() -> int:
     j = str(args.jobs)
     # Read before the first object is touched, and the old stamp gone, so a rebuild that
     # stops part way leaves no stamp (the module docstring, "The fold-code stamp").
+    # The helpers are part of the fold code the stamp names; on a fresh checkout they do not
+    # exist until the first lift builds them, so build them before reading it.
+    C.helpers()
     code = fold_code()
     STAMP.unlink(missing_ok=True)
+    if not STATE.is_file():
+        # A fresh checkout: the extras' state comes back from the tracked record.
+        run([PY, "tools/s4/track_extra_functions.py", "--tag", MERGED, "--restore"])
     rows = [r for r in json.loads(STATE.read_text())["rows"]
             if r.get("compiled") and not r.get("rejected")]
     # Every object the link reads, as it is before the first step: each must be written
@@ -328,10 +340,17 @@ def main() -> int:
                          "--to-next-entry", "--force"]),
         "map_compile": run([PY, "tools/s3/whole_image/compile_all.py", "--jobs", j, "--tag", TAG,
                             "--force"]),
-        "arms": run([PY, "tools/s3/arms/lift_arms_image.py", "--jobs", j, "--tag", TAG,
-                     "--armlist", str(ARMLIST), "--force"]),
     }
+    if not ARMLIST.is_file():
+        # A fresh checkout: the arm work list is read from the map build just made.
+        walls["armlist"] = run([PY, "tools/s3/arms/armlist.py", "--tag", TAG, "--jobs", j])
+    walls["arms"] = run([PY, "tools/s3/arms/lift_arms_image.py", "--jobs", j, "--tag", TAG,
+                         "--armlist", str(ARMLIST), "--force"])
     _IMAGE = C.memory_image()
+    # lift_extra.py's main makes these; on a fresh checkout (or after --restore of
+    # the state) nothing has run it yet, and remill cannot write into a missing folder.
+    for d in (LE.OUT / "ll", LE.OUT / "fold", LE.OUT / "obj"):
+        d.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     with multiprocessing.get_context("fork").Pool(args.jobs) as pool:
         out = pool.map(_extra, rows, chunksize=4)
