@@ -26,10 +26,22 @@ What a row means: this address was lifted as its own module, for this reason,
 and it did or did not compile and fold. Changing the set changes what the
 guest can execute, the same as a dispatch exception.
 
+Restoring the state from the record
+-----------------------------------
+
+`--restore` runs the projection backwards: it writes the generated state from
+this record, with each row's object path where `lift_extra.py` puts it, so a
+fresh checkout (or one whose `private/` was lost) can rebuild every extra with
+`tools/s4/rebuild_image.py` instead of finding each block again by running the
+game. The timings stay absent; nothing reads them. It refuses to overwrite a
+state that exists, and checks that projecting what it wrote gives this record
+back, field for field.
+
 Usage
 -----
 
     .venv/bin/python tools/s4/track_extra_functions.py [--tag next+allarms] [--write]
+    .venv/bin/python tools/s4/track_extra_functions.py [--tag next+allarms] --restore
 """
 
 from __future__ import annotations
@@ -113,11 +125,43 @@ def project(tag: str) -> dict:
     }
 
 
+def restore(tag: str) -> Path:
+    """Write the generated state from the tracked record (module docstring)."""
+    dst = C.GEN / "s4" / "link" / f"extra_functions.{tag}.json"
+    if dst.exists():
+        raise SystemExit(f"TRACK_EXTRAS_FAILED {dst} exists; --restore only writes a missing state")
+    record = json.loads(OUT.read_text())
+    objdir = C.GEN / "s4" / "lift" / "obj"
+    rows = []
+    for r in record["rows"]:
+        row = {k: r[k] for k in KEEP if k in r}
+        if "why_recovered" in r:
+            # A backfilled reason was empty in the state; project() fills it again.
+            row["why"] = ""
+        row["object"] = str(objdir / f"ir_{int(r['va'], 16):08X}.o")
+        rows.append(row)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(json.dumps({"tag": tag, "lift_tag": record.get("lift_tag", ""),
+                               "arms_tag": record.get("arms_tag", ""), "rows": rows},
+                              indent=1) + "\n")
+    if project(tag) != record:
+        dst.unlink()
+        raise SystemExit("TRACK_EXTRAS_FAILED the restored state does not project back to "
+                         f"{OUT.relative_to(C.ROOT)}; nothing was written")
+    return dst
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="next+allarms")
     ap.add_argument("--write", action="store_true")
+    ap.add_argument("--restore", action="store_true",
+                    help="write the generated state from the tracked record")
     a = ap.parse_args()
+    if a.restore:
+        dst = restore(a.tag)
+        print(f"TRACK_EXTRAS restored {dst.relative_to(C.ROOT)} from {OUT.relative_to(C.ROOT)}")
+        return 0
     doc = project(a.tag)
     c = doc["counts"]
     print(f"TRACK_EXTRAS tag={a.tag} rows={c['rows']} lifted={c['lifted']} "
