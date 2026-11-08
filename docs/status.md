@@ -2,7 +2,9 @@
 
 OpenSA2 is an experimental port with Windows, Android, and Linux downloads. It has reached live gameplay on desktop and Android devices. It has not completed a full-game compatibility pass.
 
-This status reflects development on 2026-10-16. The [prereleases](downloads.md) use tested development snapshots. A complete fresh-checkout game build remains unfinished.
+This status reflects development on 2026-10-16. The [prereleases](downloads.md) use tested development snapshots. A fresh checkout can rebuild the translated game image from your own executable and check it against recorded hashes (see the [developer guide](getting-started.md#translate-the-game-image)). A release build from that image still needs pinned tools and host dependencies that you set up yourself.
+
+Claims on this page use the [method's claim vocabulary](method/principles.md#claim-vocabulary). "Reaches", for example, means a scripted run arrives at a point with no traps, and says nothing about whether the behavior on the way was correct. [Verification](method/verification.md) lists what each phrase proves and what it does not.
 
 ## Platforms
 
@@ -31,7 +33,7 @@ The desktop installer supports Steam discovery, a selected game folder, and a ZI
 - The faster floating-point mode used by desktop development builds needs wider gameplay comparisons. A native x87 mode remains available for fidelity work.
 - Android support is experimental. The tested phones do not represent every Android GPU or device, and sustained performance depends on temperature and workload.
 - The low-FPS speed fix is experimental and off by default. It keeps stages at their normal speed below 60 frames per second by running two or three game ticks for each drawn frame. Menus, cutscenes, and movies still slow down on a slow device, and the **Auto** setting has had little testing on phones.
-- A complete public source-build bootstrap is unfinished. The build scripts still require local generated inputs and pinned dependencies.
+- A complete public source-build bootstrap is unfinished. A fresh checkout can rebuild and check the translated game image, but the function map, the host libraries, and the release build still require pinned tools and local setup.
 
 ## Work still needed
 

@@ -8,7 +8,7 @@ OpenSA2 is an experimental native port of the 2012 PC release of *Sonic Adventur
 
 The aim is to preserve the game's original logic while making that logic run on new platforms. Linux and Windows builds have reached live gameplay. Android builds have run on real devices with touch input, and external-controller support is implemented. Work continues on game coverage and platform behavior.
 
-[Download and play](docs/downloads.md) · [Architecture](docs/architecture.md) · [Current status](docs/status.md) · [Contribute](CONTRIBUTING.md)
+[Download and play](docs/downloads.md) · [Architecture](docs/architecture.md) · [Current status](docs/status.md) · [Method](docs/method/README.md) · [Contribute](CONTRIBUTING.md)
 
 ## Download the experimental builds
 
@@ -40,7 +40,7 @@ City Escape running in development builds. The Windows capture runs under Wine; 
 
 ## Build and contribute
 
-This source repository includes no game executable, assets, or translated game code. **The source cannot build a playable game on its own.** A complete build needs your own game files and generated inputs that this checkout does not include. The public bootstrap is still in development. Start with the [developer guide](docs/getting-started.md) to run checks with synthetic files and find the build entry points.
+This source repository includes no game executable, assets, or translated game code. **The source cannot build a playable game on its own.** A complete build needs your own game files and generated inputs that this checkout does not include. The public bootstrap is still in development: a fresh clone can rebuild the translated game image from your own executable and check it against recorded hashes, but the rest of a build needs pinned tools you set up yourself. Start with the [developer guide](docs/getting-started.md) to run checks with synthetic files and find the build entry points, and read the [method](docs/method/README.md) for how the port was built and how to apply it to another game.
 
 ## What runs today
 
