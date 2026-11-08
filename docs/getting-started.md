@@ -119,14 +119,64 @@ The current build entry points are:
 
 | Task | Entry point | Prerequisite |
 | --- | --- | --- |
-| Translate mapped game functions | `tools/s3/whole_image/lift_all.py` | The analyzed executable, function map, Remill, and helper modules. |
-| Rebuild the translated image after a translation change | `tools/s4/rebuild_image.py` | Existing mapped modules, jump-table modules, and extra-block inputs. |
+| Make the function map | `Documentation/scripts/s1_function_map.py` | The unpacked executable and Ghidra. |
+| Translate the whole game image | `tools/s4/rebuild_image.py` | The unpacked executable, the function map, Remill, and Zig. |
+| Check the translated image | `tools/s4/lift_ir_receipt.py` | A translated image. |
 | Build host dependencies | `tools/s5/build_host_deps.sh` | The pinned source archives, build tools, and platform headers. |
 | Assemble a desktop build | `tools/s7/release_build.py` | The generated game image, host libraries, and verification inputs. |
 | Compile and link the Android game | `tools/s8/android_game.py` | The translated image and Android toolchain. |
 | Build the Android app | `tools/s8/android_app.py` | The Android game, renderer dependencies, and Android toolchain. |
 
-These tools do not form a fresh-checkout build command yet. Keep generated code, binaries, and game files local. Do not commit them.
+Keep generated code, binaries, and game files local. Do not commit them.
+
+## Translate the game image
+
+The translated image is the game's code as LLVM modules and native objects. It is about 24,000 modules in three groups: the functions in the function map, the jump-table targets inside those functions (arms), and the blocks the first pass did not cover (extras). The translation is deterministic. A correct setup produces the same modules on every machine, whatever path the checkout is in.
+
+1. Make the unpacked executable. See [Make the unpacked executable](#make-the-unpacked-executable).
+
+2. Make the function map with Ghidra.
+
+   ```bash
+   .venv/bin/python Documentation/scripts/s1_function_map.py
+   ```
+
+   The script writes `private/generated/function-map.json`. Its sha256 must be `11b82ae844467a97ff6d9e99faa827f6ab8f2411e942fb415344ed12c96e622e`. The receipts under `Documentation/receipts/` record the same value as their function-map input.
+
+3. Translate the whole image.
+
+   ```bash
+   source tools/env.sh
+   .venv/bin/python tools/s4/rebuild_image.py --jobs 16
+   ```
+
+   The command builds the floating-point helper modules, translates and compiles the mapped functions, writes the arm list, translates the arms, and restores the extras from `Documentation/lifted-extras.json`. With 16 jobs it takes about six minutes. A run that stops part way can be started again.
+
+4. Check the result.
+
+   ```bash
+   .venv/bin/python tools/s4/lift_ir_receipt.py
+   ```
+
+   `LIFT_IR_OK` means every module matches `Documentation/receipts/lift-ir-v1.json`. Otherwise the command names the first module that differs in each group. A difference usually means a different function map, unpacked executable, or tool version than the pins in `tools/pins.json`.
+
+Before you assemble a desktop build from a fresh image, generate the tables the link reads:
+
+```bash
+.venv/bin/python tools/s4/mb_edges.py --tag next+allarms --lift-tag next --arms-tag next
+.venv/bin/python tools/s3/whole_image/gen_table.py --tag next+allarms --out private/generated/s3/link/next+allarms/function_table_whole.c
+.venv/bin/python tools/s7/drm_unwrap.py --companion
+```
+
+The last command writes the read-set that `tools/s7/release_build.py` checks the unpacked executable against. It needs no recorded game runs, and it writes nothing unless its result matches the hash in `Documentation/receipts/s7-drm-unwrap-v1.json`.
+
+Local builds embed the absolute paths of their source files, which can include your user name. Before you share a build, list your home folder and anything else private in a JSON file such as `{"terms": ["/home/yourname"]}`, then check the package:
+
+```bash
+python3 tools/release/check_package.py PACKAGE --deny-file private/deny.json
+```
+
+The check fails if any file in the package contains a listed term.
 
 ## Make the unpacked executable
 
