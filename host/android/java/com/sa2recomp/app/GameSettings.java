@@ -7,6 +7,7 @@ import android.content.pm.ActivityInfo;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.os.Build;
+import android.view.KeyEvent;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -312,6 +313,7 @@ final class GameSettings {
     int pictureY = 25;                         // upright, the picture's centre, percent of the height down (0 to 50)
     String layoutLandscape = "", layoutPortrait = "";  // SA2_TOUCH_LAYOUT, SA2_TOUCH_LAYOUT_PORTRAIT; "" its own
     String touchMap = "", padMap = "";         // SA2_TOUCH_MAP and SA2_PAD_MAP, only what differs
+    String padFirst = "", padFirstName = "";   // SA2_PAD_P1 ("" automatic), and the controller's name for the screen
     final Set<String> tweaksOn = new HashSet<>();  // the TWEAKS names turned on; none by default
 
     static GameSettings load(Context c) {
@@ -335,6 +337,8 @@ final class GameSettings {
         s.layoutPortrait = p.getString("touch_layout_portrait", s.layoutPortrait);
         s.touchMap = p.getString("touch_map", s.touchMap);
         s.padMap = p.getString("pad_map", s.padMap);
+        s.padFirst = p.getString("pad_first", s.padFirst);
+        s.padFirstName = p.getString("pad_first_name", s.padFirstName);
         for (Tweak t : TWEAKS) if (p.getBoolean("tweak_" + t.name, false)) s.tweaksOn.add(t.name);
         return s;
     }
@@ -360,7 +364,9 @@ final class GameSettings {
                 .putString("touch_layout", layoutLandscape)
                 .putString("touch_layout_portrait", layoutPortrait)
                 .putString("touch_map", touchMap)
-                .putString("pad_map", padMap);
+                .putString("pad_map", padMap)
+                .putString("pad_first", padFirst)
+                .putString("pad_first_name", padFirstName);
         for (Tweak t : TWEAKS) e.putBoolean("tweak_" + t.name, tweaksOn.contains(t.name));
         e.commit();
     }
@@ -506,6 +512,7 @@ final class GameSettings {
         if (!layoutPortrait.isEmpty()) e.add("SA2_TOUCH_LAYOUT_PORTRAIT=" + layoutPortrait);
         if (!touchMap.isEmpty()) e.add("SA2_TOUCH_MAP=" + touchMap);
         if (!padMap.isEmpty()) e.add("SA2_PAD_MAP=" + padMap);
+        if (!padFirst.isEmpty()) e.add("SA2_PAD_P1=" + padFirst);
         // The Sound card's sliders, for volume-levels (runtime/tweaks/volume-levels.c), which they turn on.
         if (tweaksOn.contains(VOLUME_LEVELS) || Arrays.asList(launchTweaks).contains(VOLUME_LEVELS))
             e.addAll(Arrays.asList("SA2_MUSIC_VOLUME=" + musicVolume, "SA2_VOICE_VOLUME=" + voiceVolume,
@@ -558,6 +565,52 @@ final class GameSettings {
             b.append(order[i]).append('=').append(v);
         }
         return b.toString();
+    }
+
+    /** The controller that is player 1, as the player (host/player/player.cpp SA2_PAD_P1) names it: by
+     * vendor and product when the device has them, else by its name. */
+    static String padFirstFor(int vendor, int product, String name) {
+        if (vendor != 0 || product != 0) return String.format(Locale.ROOT, "ID:%04x:%04x", vendor, product);
+        return "NAME:" + name;
+    }
+
+    /** The position, in SA2_PAD_MAP's names, of the button an Android key code is; null for a key that
+     * is no mappable button (a trigger is an axis to the player, and a stick or a keyboard key is not
+     * a button). */
+    static String padPosition(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_BUTTON_A: return "SOUTH";
+            case KeyEvent.KEYCODE_BUTTON_B: return "EAST";
+            case KeyEvent.KEYCODE_BUTTON_X: return "WEST";
+            case KeyEvent.KEYCODE_BUTTON_Y: return "NORTH";
+            case KeyEvent.KEYCODE_BUTTON_L1: return "LB";
+            case KeyEvent.KEYCODE_BUTTON_R1: return "RB";
+            case KeyEvent.KEYCODE_BUTTON_SELECT: return "BACK";
+            case KeyEvent.KEYCODE_BUTTON_START: return "START";
+            case KeyEvent.KEYCODE_BUTTON_THUMBL: return "LS";
+            case KeyEvent.KEYCODE_BUTTON_THUMBR: return "RS";
+            case KeyEvent.KEYCODE_DPAD_UP: return "UP";
+            case KeyEvent.KEYCODE_DPAD_DOWN: return "DOWN";
+            case KeyEvent.KEYCODE_DPAD_LEFT: return "LEFT";
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return "RIGHT";
+            default: return null;
+        }
+    }
+
+    /** `map` with the pad button `physical` sending `out`, and the button that sent `out` until now
+     * sending what `physical` sent, so pressing a button for A swaps the two and loses neither. */
+    static String assignPadButton(String map, String physical, String out) {
+        String[] keys = PAD_BUTTONS, owns = PAD_DEFAULTS;
+        String had = null;
+        for (int i = 0; i < keys.length; i++) if (keys[i].equals(physical)) had = sends(map, keys[i], owns[i]);
+        if (had == null || had.equals(out)) return map;
+        String result = withSend(map, keys, owns, physical, out);
+        for (int i = 0; i < keys.length; i++)
+            if (!keys[i].equals(physical) && sends(map, keys[i], owns[i]).equals(out)) {
+                result = withSend(result, keys, owns, keys[i], had);
+                break;
+            }
+        return result;
     }
 
     // ------------------------------------------------------------ the touch layout

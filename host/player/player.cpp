@@ -207,6 +207,14 @@
 // pad_output_named; LT and RT hold that trigger all the way). The report's "host_pads" counts
 // the pads, the records asked for and the overlay's draws.
 //
+// Which pad is player one: SA2_PAD_P1=ID:vvvv:pppp (hex vendor and product) or NAME:<device name>
+// gives the pad so named (its joystick name and ids, as each pad is said in the log: "pads: added
+// ...") slot 0, whichever order SDL lists the pads in, the pad it displaces taking the slot the
+// newcomer would have had; of several pads that match, the first keeps slot 0. SA2_PAD_P1=ALL sends
+// every pad, and the overlay, as slot 0 (buttons and triggers combined, each stick the one pushed
+// furthest) and leaves slots 1 to 3 empty, for a handheld whose controls SDL lists as several
+// pads. Unset, or a name no pad has, the slots are as before.
+//
 // The picture's place (portrait play): SA2_PLAYER_PICTURE_Y=F, F 0 to 1, puts a letterboxed
 // picture's centre at F of an upright window's height (0.25: the middle of its upper half), its
 // top no higher than the window's safe area and no lower than centred; unset, or a window no taller
@@ -1193,6 +1201,7 @@ private:
     void service_pads();
     void pad_event(const SDL_Event& e);
     void open_pad(SDL_JoystickID id);
+    bool is_player_one_pad(SDL_JoystickID id) const;
     void read_pad(PadSlot* s);
     void derive_pad(PadSlot* s) const;
     void place_picture();
@@ -1320,6 +1329,9 @@ private:
         sa2_input::PadState state; // what the game is sent: axes, and held through pad_map_
     };
     PadSlot pad_slots_[sa2_input::kPadSlots];
+    std::string pad_p1_name_;                      // SA2_PAD_P1=NAME:...: the pad that takes slot 0
+    int pad_p1_vendor_ = -1, pad_p1_product_ = -1; // SA2_PAD_P1=ID:...: the same, by ids
+    bool pad_p1_all_ = false;                      // SA2_PAD_P1=ALL: every pad is slot 0
     sa2_input::PadOutput pad_map_[SDL_GAMEPAD_BUTTON_COUNT];   // SA2_PAD_MAP, over kPadButtonBits
     float picture_y_ = -1;                         // SA2_PLAYER_PICTURE_Y ("The picture's place"); -1 centred
     float picture_anchor_ = -1;                    // what the last Present used: picture_y_ in an upright window
@@ -4531,6 +4543,16 @@ void Player::setup_pads() {
         if (ok) std::printf("pads: %s=%s\n", k, v);
         else std::printf("pads: %s=%s not used: %s\n", k, v, why.c_str());
     }
+    if (const char* v = getenv("SA2_PAD_P1"); v && *v) {
+        if (std::strcmp(v, "ALL") == 0) pad_p1_all_ = true;
+        else if (std::strncmp(v, "NAME:", 5) == 0 && v[5]) pad_p1_name_ = v + 5;
+        else if (unsigned vid = 0, pid = 0; std::sscanf(v, "ID:%x:%x", &vid, &pid) == 2 && vid <= 0xffff && pid <= 0xffff) {
+            pad_p1_vendor_ = int(vid);
+            pad_p1_product_ = int(pid);
+        }
+        if (pad_p1_all_ || !pad_p1_name_.empty() || pad_p1_vendor_ >= 0) std::printf("pads: SA2_PAD_P1=%s\n", v);
+        else std::printf("pads: SA2_PAD_P1=%s not used: it is ALL, ID:vvvv:pppp or NAME:<device name>\n", v);
+    }
     sa2_touch::set_settings(touch_, touch_settings);
     sa2_frametime::setup(SA2_PLAYER_GPU != 0, o_.pace && host());   // host tweak frametime-overlay
     const SDL_PropertiesID props = SDL_GetWindowProperties(win_);
@@ -4613,6 +4635,14 @@ void Player::derive_pad(PadSlot* s) const {
     s->state = st;
 }
 
+// Whether SA2_PAD_P1 names this pad.
+bool Player::is_player_one_pad(SDL_JoystickID id) const {
+    if (pad_p1_vendor_ >= 0)
+        return SDL_GetJoystickVendorForID(id) == pad_p1_vendor_ && SDL_GetJoystickProductForID(id) == pad_p1_product_;
+    const char* device = SDL_GetJoystickNameForID(id);
+    return !pad_p1_name_.empty() && device && pad_p1_name_ == device;
+}
+
 // A gamepad SDL announced: the lowest free slot, sent at once.
 void Player::open_pad(SDL_JoystickID id) {
     if (slot_of(id)) return;                        // announced again (at the subsystem's start)
@@ -4630,6 +4660,16 @@ void Player::open_pad(SDL_JoystickID id) {
     free->pad = g;
     const char* name = SDL_GetGamepadName(g);
     free->name = name ? name : "?";
+    const char* device = SDL_GetJoystickNameForID(id);
+    const std::string label = device ? device : free->name;
+    std::printf("pads: added \"%s\" (vendor %04x product %04x) as slot %d\n", label.c_str(),
+                unsigned(SDL_GetJoystickVendorForID(id)), unsigned(SDL_GetJoystickProductForID(id)),
+                int(free - pad_slots_));
+    if (free != &pad_slots_[0] && is_player_one_pad(id) && !(pad_slots_[0].pad && is_player_one_pad(pad_slots_[0].id))) {
+        std::swap(*free, pad_slots_[0]);            // player one's pad: slot 0, the pad there moves up
+        std::printf("pads: \"%s\" is player one (SA2_PAD_P1)\n", label.c_str());
+        free = &pad_slots_[0];
+    }
     read_pad(free);
     ++pads_added_;
     send_pads();
@@ -4695,6 +4735,14 @@ void Player::send_pads() {
     for (size_t i = 0; i < sa2_input::kPadSlots; ++i)
         if (pad_slots_[i].pad) set.slot[i] = pad_slots_[i].state;
     sa2tw::deadzone(&set);                          // host tweak "deadzone": the pads' left sticks
+    if (pad_p1_all_) {                              // SA2_PAD_P1=ALL: every pad is player one
+        sa2_input::PadState all;
+        for (sa2_input::PadState& p : set.slot) {
+            all = shared_slot(all, p);
+            p = sa2_input::PadState{};
+        }
+        set.slot[0] = all;
+    }
     if (touch_) {
         sa2_input::PadState t;
         sa2_touch::pad(touch_, &t);
@@ -4849,6 +4897,8 @@ void Player::push_due_synthetic_input() {
                 d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;  // a default mapping: button i is SDL_GamepadButton i
                 const std::string name = "SA2 synthetic pad " + std::to_string(in.k);
                 d.name = name.c_str();
+                d.vendor_id = 0x5341;                   // told apart by SA2_PAD_P1=ID:5341:100K too
+                d.product_id = Uint16(0x100 + in.k);
                 const SDL_JoystickID id = SDL_AttachVirtualJoystick(&d);
                 joy = id ? SDL_OpenJoystick(id) : nullptr;
                 synthetic_pad_id_[in.k] = id;

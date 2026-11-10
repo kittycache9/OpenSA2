@@ -286,8 +286,9 @@ public class FrameskipDriver {
 """
 
 
-@pytest.fixture(scope="module")
-def frameskip_java(tmp_path_factory):
+def java_driver(tmp_path_factory, name: str, source: str):
+    """GameSettings.java compiled with a driver class `name` (package com.sa2recomp.app); the
+    returned function runs it with arguments and gives its stdout."""
     import json
     import shutil
     import subprocess
@@ -296,19 +297,25 @@ def frameskip_java(tmp_path_factory):
     missing = [str(p) for p in (jdk / "bin/javac", android_jar) if not p.exists()]
     if missing:
         pytest.skip(f"needs the JDK and android.jar: missing {missing}")
-    d = tmp_path_factory.mktemp("frameskip_java")
+    d = tmp_path_factory.mktemp(name)
     src = d / "java/com/sa2recomp/app"
     src.mkdir(parents=True)
-    (src / "FrameskipDriver.java").write_text(FRAMESKIP_JAVA)
+    (src / f"{name}.java").write_text(source)
     shutil.copy(ROOT / "host/android/java/com/sa2recomp/app/GameSettings.java", src)
     subprocess.run([str(jdk / "bin/javac"), "--release", "11", "-nowarn", "-classpath", str(android_jar),
                     "-d", str(d / "classes"), *map(str, src.glob("*.java"))], check=True, capture_output=True)
 
     def run(*args):
         return subprocess.run([str(jdk / "bin/java"), "-cp", f"{d / 'classes'}:{android_jar}",
-                               "com.sa2recomp.app.FrameskipDriver", *args], capture_output=True, text=True,
-                              check=True).stdout.split("|")
+                               f"com.sa2recomp.app.{name}", *args], capture_output=True, text=True,
+                              check=True).stdout
     return run
+
+
+@pytest.fixture(scope="module")
+def frameskip_java(tmp_path_factory):
+    run = java_driver(tmp_path_factory, "FrameskipDriver", FRAMESKIP_JAVA)
+    return lambda *args: run(*args).split("|")
 
 
 @pytest.mark.parametrize("stored, settings", [
@@ -410,3 +417,64 @@ def test_suggest_a_tweak_opens_the_tweak_idea_form_with_its_own_field():
     assert '"&title=" + java.net.URLEncoder.encode("[Tweak] " + idea, "UTF-8")' in tweaks
     assert '"&idea=" + java.net.URLEncoder.encode(idea, "UTF-8")' in tweaks
     assert "android.permission.INTERNET" not in (ROOT / "host/android/AndroidManifest.xml").read_text()
+
+
+PAD_JAVA = r"""
+package com.sa2recomp.app;
+public class PadDriver {
+    public static void main(String[] a) {
+        switch (a[0]) {
+            case "assign": System.out.print(GameSettings.assignPadButton(a[1], a[2], a[3])); break;
+            case "position": System.out.print(GameSettings.padPosition(Integer.parseInt(a[1]))); break;
+            case "first": System.out.print(GameSettings.padFirstFor(Integer.parseInt(a[1], 16),
+                    Integer.parseInt(a[2], 16), a[3])); break;
+            case "env": {
+                GameSettings s = new GameSettings();
+                s.padFirst = a[1];
+                System.out.print(String.join(" ", s.sessionSettings(2340, 1080)));
+                break;
+            }
+            default: throw new IllegalArgumentException(a[0]);
+        }
+    }
+}
+"""
+
+
+@pytest.fixture(scope="module")
+def pad_java(tmp_path_factory):
+    return java_driver(tmp_path_factory, "PadDriver", PAD_JAVA)
+
+
+@pytest.mark.parametrize("map_, physical, out, want", [
+    # Pressing the right face button (EAST) for A swaps A and B: neither is lost.
+    ("", "EAST", "A", "SOUTH=B,EAST=A"),
+    # Already what it sends: nothing changes.
+    ("", "SOUTH", "A", ""),
+    # A button that sends nothing yet takes START, and the old START button takes what it had.
+    ("", "BACK", "START", "BACK=START,START=BACK"),
+    # A second press builds on the first: NORTH for A, with SOUTH already B and EAST already A.
+    ("SOUTH=B,EAST=A", "NORTH", "A", "SOUTH=B,EAST=Y,NORTH=A"),
+])
+def test_pressing_a_button_for_a_game_button_swaps_their_jobs(pad_java, map_, physical, out, want):
+    assert pad_java("assign", map_, physical, out) == want
+
+
+def test_a_pressed_key_is_the_position_the_player_names(pad_java):
+    # android.view.KeyEvent: BUTTON_A 96, BUTTON_B 97, BUTTON_X 99, BUTTON_Y 100, BUTTON_L1 102,
+    # BUTTON_R1 103, BUTTON_L2 104 (an axis to the player), BUTTON_THUMBL 106, BUTTON_START 108,
+    # BUTTON_SELECT 109, DPAD_UP 19, KEYCODE_A 29.
+    got = {k: pad_java("position", str(k)) for k in (96, 97, 99, 100, 102, 103, 104, 106, 108, 109, 19, 29)}
+    assert got == {96: "SOUTH", 97: "EAST", 99: "WEST", 100: "NORTH", 102: "LB", 103: "RB", 104: "null",
+                   106: "LS", 108: "START", 109: "BACK", 19: "UP", 29: "null"}
+
+
+def test_player_one_is_named_by_ids_or_else_by_name(pad_java):
+    assert pad_java("first", "46d", "c216", "Dual Action") == "ID:046d:c216"
+    assert pad_java("first", "0", "0", "AYN Thor Gamepad") == "NAME:AYN Thor Gamepad"
+
+
+def test_player_one_goes_to_the_player_only_when_set(pad_java):
+    assert pad_java("env", "") == ""
+    assert pad_java("env", "ALL") == "SA2_PAD_P1=ALL"
+    assert pad_java("env", "ID:046d:c216") == "SA2_PAD_P1=ID:046d:c216"

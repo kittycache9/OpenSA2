@@ -21,6 +21,8 @@ FIFO this test reads, so each record the game would read is checked byte for byt
     middle;
   * frames: the frames file (read back before Present) holds no overlay: a run without input
     has the same frames table, frame for frame;
+  * player one: with SA2_PAD_P1 naming the second pad, by name or by vendor and product, it takes
+    slot 0 and the first pad moves up to slot 1; SA2_PAD_P1=ALL sends both pads as slot 0;
   * settings: the same script with SA2_PAD_MAP (a pad's SOUTH and EAST swapped), SA2_TOUCH_MAP
     (the overlay's A sends X) and the overlay bigger with its stick and diamond swapped
     (SA2_TOUCH_SCALE, SA2_TOUCH_LAYOUT) sends the same records with only those buttons changed:
@@ -156,6 +158,47 @@ EXPECTED_SETTINGS = [
 ]
 
 
+# Two pads, the second the one the player means as player one (SA2_PAD_P1): its A, then the
+# first pad's START (SDL_GamepadButton 0 and 6).
+P1_SCRIPT = """\
+100 pad-attach 0
+150 pad-attach 1
+200 pad-button 1 0 1
+250 pad-button 1 0 0
+300 pad-button 0 6 1
+350 pad-button 0 6 0
+"""
+EXPECTED_AUTO = [
+    (OFF, OFF, OFF, OFF),
+    (slot(), OFF, OFF, OFF),
+    (slot(), slot(), OFF, OFF),
+    (slot(), slot(A), OFF, OFF),                 # pad 1 is slot 1: player two
+    (slot(), slot(), OFF, OFF),
+    (slot(START), slot(), OFF, OFF),
+    (slot(), slot(), OFF, OFF),
+    (OFF, OFF, OFF, OFF),
+]
+EXPECTED_P1 = [
+    (OFF, OFF, OFF, OFF),
+    (slot(), OFF, OFF, OFF),
+    (slot(), slot(), OFF, OFF),                  # pad 1 comes in and takes slot 0; pad 0 moves up
+    (slot(A), slot(), OFF, OFF),
+    (slot(), slot(), OFF, OFF),
+    (slot(), slot(START), OFF, OFF),
+    (slot(), slot(), OFF, OFF),
+    (OFF, OFF, OFF, OFF),
+]
+EXPECTED_ALL = [
+    (OFF, OFF, OFF, OFF),
+    (slot(), OFF, OFF, OFF),                     # both pads are slot 0: pad 1 changes nothing
+    (slot(A), OFF, OFF, OFF),
+    (slot(), OFF, OFF, OFF),
+    (slot(START), OFF, OFF, OFF),
+    (slot(), OFF, OFF, OFF),
+    (OFF, OFF, OFF, OFF),
+]
+
+
 def read_png_rgb(path: Path) -> tuple[int, int, bytes]:
     """An 8-bit RGB PNG (texcodec.cpp write_png_rgb's) as (w, h, rgb rows)."""
     data = path.read_bytes()
@@ -228,7 +271,7 @@ def play(player: Path, stream: Path, out: Path, script: str | None, settings: di
         (out / "shots").mkdir()
         argv += ["--synthetic-input", str(out / "script.tsv"), "--overlay-out", str(out / "shots")]
     env = dict(os.environ, VK_LOADER_LAYERS_DISABLE="~implicit~", SDL_AUDIO_DRIVER="dummy")
-    for k in [k for k in env if k.startswith("SA2_TOUCH_") or k == "SA2_PAD_MAP"]:
+    for k in [k for k in env if k.startswith("SA2_TOUCH_") or k in ("SA2_PAD_MAP", "SA2_PAD_P1")]:
         env.pop(k)
     env.update(settings or {})
     with (out / "player.out").open("wb") as so:
@@ -295,7 +338,11 @@ def runs(tmp_path_factory):
     player = build_player(t / "bin")
     stream = build_synth(t)
     return {"input": play(player, stream, t / "input", SCRIPT), "plain": play(player, stream, t / "plain", None),
-            "settings": play(player, stream, t / "settings", SCRIPT, SETTINGS)}
+            "settings": play(player, stream, t / "settings", SCRIPT, SETTINGS),
+            "p1_name": play(player, stream, t / "p1_name", P1_SCRIPT, {"SA2_PAD_P1": "NAME:SA2 synthetic pad 1"}),
+            "p1_id": play(player, stream, t / "p1_id", P1_SCRIPT, {"SA2_PAD_P1": "ID:5341:0101"}),
+            "p1_all": play(player, stream, t / "p1_all", P1_SCRIPT, {"SA2_PAD_P1": "ALL"}),
+            "p1_none": play(player, stream, t / "p1_none", P1_SCRIPT, {"SA2_PAD_P1": "NAME:no such pad"})}
 
 
 def test_the_overlay_alone(tmp_path):
@@ -401,3 +448,34 @@ def test_the_frames_file_holds_no_overlay(runs):
     assert len(a) >= 4 and a == b
     # The run without input sent the pads once, at the FIFO's open, and let them go at its end.
     assert [slots for _, slots in plain["records"]] == [(OFF, OFF, OFF, OFF)]
+
+
+def check_p1(r, expected, said_line):
+    assert r["exit"] == 0, (r["out"] / "player.out").read_text()[-3000:]
+    assert r["report"]["synthetic_input"]["failures"] == 0
+    said = (r["out"] / "player.out").read_text()
+    assert said_line in said, said[-3000:]
+    records_match(r["records"], expected)
+
+
+def test_a_pad_named_player_one_takes_slot_zero(runs):
+    check_p1(runs["p1_name"], EXPECTED_P1, 'pads: "SA2 synthetic pad 1" is player one (SA2_PAD_P1)\n')
+
+
+def test_a_pad_named_by_vendor_and_product_takes_slot_zero(runs):
+    check_p1(runs["p1_id"], EXPECTED_P1, 'pads: "SA2 synthetic pad 1" is player one (SA2_PAD_P1)\n')
+
+
+def test_every_pad_together_is_player_one(runs):
+    check_p1(runs["p1_all"], EXPECTED_ALL, "pads: SA2_PAD_P1=ALL\n")
+
+
+def test_a_name_no_pad_has_changes_nothing(runs):
+    check_p1(runs["p1_none"], EXPECTED_AUTO, "pads: SA2_PAD_P1=NAME:no such pad\n")
+    assert "is player one" not in (runs["p1_none"]["out"] / "player.out").read_text()
+
+
+def test_each_pad_is_said_with_its_ids_and_slot(runs):
+    said = (runs["p1_name"]["out"] / "player.out").read_text()
+    assert 'pads: added "SA2 synthetic pad 0" (vendor 5341 product 0100) as slot 0\n' in said
+    assert 'pads: added "SA2 synthetic pad 1" (vendor 5341 product 0101) as slot 1\n' in said

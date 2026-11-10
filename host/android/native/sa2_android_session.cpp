@@ -23,8 +23,8 @@
 //    game.env, the session's defaults and the app's settings, and replace those, never the
 //    session's own (the installation, the session's files and the stream's settings, set last).
 //    So game.env.extra wins over the settings screen. The player's settings among them
-//    (SA2_TOUCH_*, SA2_PAD_MAP, SA2_PLAYER_PICTURE_Y, SA2_PLAYER_PROF*) go to the player, in this
-//    process's environment, and not to the game; SA2_TWEAKS goes to both.
+//    (SA2_TOUCH_*, SA2_PAD_MAP, SA2_PAD_P1, SA2_PLAYER_PICTURE_Y, SA2_PLAYER_PROF*) go to the
+//    player, in this process's environment, and not to the game; SA2_TWEAKS goes to both.
 //  - The relay (host/launch/sa2_relay.h) hands the stream on to the player, paced (lead 1) through
 //    the pace pipe, whose read end the game gets as descriptor 43 (SA2_REC_PACE_FD).
 //  - The player: host/player's main (renamed sa2_player_main by tools/s8/android_app.py) on this
@@ -288,7 +288,7 @@ struct Args {
 // where the player runs, and are taken out of the game's.
 bool player_setting(const std::string& k) {
     return k == "SA2_PLAYER_PROF" || k == "SA2_PLAYER_PROF_OUT" || k == "SA2_PLAYER_PICTURE_Y" || k == "SA2_PAD_MAP" ||
-           k.compare(0, 10, "SA2_TOUCH_") == 0;
+           k == "SA2_PAD_P1" || k.compare(0, 10, "SA2_TOUCH_") == 0;
 }
 
 // The first line of `path` that holds `needle`, said after `prefix` once it is there, while the

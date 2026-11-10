@@ -11,6 +11,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.InputDevice;
+import android.view.KeyEvent;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -337,9 +339,142 @@ public class Sa2SettingsActivity extends Activity {
 
     private void buildController(Ui.Column p) {
         Ui.Group g = group(p, false);
+        Ui.ListRow first = row(g, -1, "Player 1 controller", Ui.chevron(this), v -> pickFirstPad());
+        status(first, () -> mS.padFirst.isEmpty() ? "Automatic"
+                : "ALL".equals(mS.padFirst) ? "All controllers together" : mS.padFirstName);
+        Ui.ListRow press = row(g, -1, "Set buttons by pressing", Ui.chevron(this), v -> pressMap(null));
+        status(press, () -> "Press the button you want for each one");
         Ui.ListRow map = row(g, -1, "Controller buttons", Ui.chevron(this), v -> pickMap(false, -1));
         status(map, () -> mS.padMap.isEmpty() ? "Standard" : "Custom");
-        footnote(p, "Buttons are named by where they are: the bottom face button is A, as on an Xbox controller.");
+        footnote(p, "Player 1 is the first controller the game finds. If your handheld's own buttons act as "
+                + "player 2, choose them here, or pick All controllers together. Buttons are named by where "
+                + "they are: the bottom face button is A, as on an Xbox controller. Pressing needs the "
+                + "controller to be connected now; the triggers are set from the list.");
+    }
+
+    // ------------------------------------------------------------ pressing a controller's button
+
+    /** Whether a key event comes from a game controller's button (a handheld's built-in ones too). */
+    private static boolean fromPad(KeyEvent e) {
+        int s = e.getSource();
+        return (s & (InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_JOYSTICK)) != 0
+                || KeyEvent.isGamepadButton(e.getKeyCode());
+    }
+
+    /** Asks for one press on a controller: the dialog takes its buttons (and eats them, so none acts as
+     * Back) until one comes, then hands over the key code and the device that sent it. */
+    private void pressAButton(String title, String message, java.util.function.BiConsumer<KeyEvent, InputDevice> got) {
+        AlertDialog d = new AlertDialog.Builder(this).setTitle(title).setMessage(message)
+                .setNegativeButton("Cancel", null).create();
+        d.setOnKeyListener((dlg, code, e) -> {
+            if (!fromPad(e) || e.getRepeatCount() > 0) return false;
+            if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                dlg.dismiss();
+                got.accept(e, e.getDevice());
+            }
+            return true;
+        });
+        d.show();
+    }
+
+    /** The names of the controllers connected now, in the order the system lists them. */
+    private static List<InputDevice> connectedPads() {
+        List<InputDevice> pads = new ArrayList<>();
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice d = InputDevice.getDevice(id);
+            if (d == null || d.isVirtual()) continue;
+            int s = d.getSources();
+            if ((s & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+                    || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) pads.add(d);
+        }
+        return pads;
+    }
+
+    /** Which controller is player 1: the game's own order, every controller as one, or the one whose
+     * button is pressed (the Thor's built-in buttons, say, when the game gave them to player 2). */
+    private void pickFirstPad() {
+        String[] rows = {"Automatic (the first the game finds)", "Press a button on the controller to use",
+                         "All controllers together (one player)"};
+        int on = mS.padFirst.isEmpty() ? 0 : "ALL".equals(mS.padFirst) ? 2 : 1;
+        new AlertDialog.Builder(this).setTitle("Player 1 controller")
+                .setSingleChoiceItems(rows, on, (dlg, which) -> {
+                    dlg.dismiss();
+                    if (which == 1) {
+                        pressAButton("Player 1 controller", "Press any button on the controller you want to be "
+                                + "player 1.", (e, device) -> {
+                            if (device == null) {
+                                Toast.makeText(this, "Android did not say which controller that was.",
+                                        Toast.LENGTH_LONG).show();
+                                return;
+                            }
+                            mS.padFirst = GameSettings.padFirstFor(device.getVendorId(), device.getProductId(),
+                                    device.getName());
+                            mS.padFirstName = device.getName();
+                            save();
+                            Toast.makeText(this, device.getName() + " is player 1.", Toast.LENGTH_SHORT).show();
+                        });
+                        return;
+                    }
+                    mS.padFirst = which == 2 ? "ALL" : "";
+                    mS.padFirstName = "";
+                    save();
+                })
+                .setNeutralButton("Connected", (dlg, w) -> {
+                    StringBuilder b = new StringBuilder();
+                    for (InputDevice d : connectedPads())
+                        b.append(d.getName()).append(String.format(Locale.ROOT, " (%04x:%04x)\n", d.getVendorId(),
+                                d.getProductId()));
+                    new AlertDialog.Builder(this).setTitle("Controllers connected now")
+                            .setMessage(b.length() == 0 ? "None." : b.toString().trim())
+                            .setPositiveButton("OK", (x, y) -> pickFirstPad()).show();
+                })
+                .setNegativeButton("Close", null).show();
+    }
+
+    /** Sets the game buttons by pressing the controller buttons: picks a game button (null: asks
+     * which), asks for the press, and swaps the two buttons' jobs. */
+    private void pressMap(String output) {
+        String[] outs = GameSettings.PAD_DEFAULTS;
+        if (output == null) {
+            String[] rows = new String[outs.length];
+            for (int i = 0; i < outs.length; i++) {
+                String pressed = "";
+                for (int j = 0; j < GameSettings.PAD_BUTTONS.length; j++)
+                    if (GameSettings.sends(mS.padMap, GameSettings.PAD_BUTTONS[j], GameSettings.PAD_DEFAULTS[j])
+                            .equals(outs[i])) {
+                        pressed = GameSettings.PAD_BUTTONS[j];
+                        break;
+                    }
+                rows[i] = PAD_NAMES[i] + (pressed.isEmpty() ? ": no button" : ": " + padPositionName(pressed));
+            }
+            new AlertDialog.Builder(this).setTitle("Set a button by pressing it")
+                    .setItems(rows, (dlg, which) -> pressMap(outs[which]))
+                    .setNeutralButton("Reset", (dlg, w) -> {
+                        mS.padMap = "";
+                        save();
+                    })
+                    .setNegativeButton("Close", null).show();
+            return;
+        }
+        pressAButton("Press a button for " + output, "Press the controller button you want to send " + output
+                + ".", (e, device) -> {
+            String position = GameSettings.padPosition(e.getKeyCode());
+            if (position == null) {
+                Toast.makeText(this, "That button can't be set this way (triggers are set from the list).",
+                        Toast.LENGTH_LONG).show();
+            } else {
+                mS.padMap = GameSettings.assignPadButton(mS.padMap, position, output);
+                save();
+            }
+            pressMap(null);
+        });
+    }
+
+    /** A position as the screen names it: the label of the default game button it sits on. */
+    private static String padPositionName(String position) {
+        for (int i = 0; i < GameSettings.PAD_BUTTONS.length; i++)
+            if (GameSettings.PAD_BUTTONS[i].equals(position)) return PAD_NAMES[i];
+        return position;
     }
 
     private void buildSound(Ui.Column so) {
