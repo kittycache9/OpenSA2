@@ -339,15 +339,19 @@ public class Sa2SettingsActivity extends Activity {
 
     private void buildController(Ui.Column p) {
         Ui.Group g = group(p, false);
-        Ui.ListRow first = row(g, -1, "Player 1 controller", Ui.chevron(this), v -> pickFirstPad());
+        Ui.ListRow first = row(g, -1, "Player 1 controller", Ui.chevron(this), v -> pickPad(false));
         status(first, () -> mS.padFirst.isEmpty() ? "Automatic"
                 : "ALL".equals(mS.padFirst) ? "All controllers together" : mS.padFirstName);
+        Ui.ListRow second = row(g, -1, "Player 2 controller", Ui.chevron(this), v -> pickPad(true));
+        status(second, () -> "ALL".equals(mS.padFirst) ? "Not used while controllers are together"
+                : mS.padSecond.isEmpty() ? "Automatic" : mS.padSecondName);
         Ui.ListRow press = row(g, -1, "Set buttons by pressing", Ui.chevron(this), v -> pressMap(null));
         status(press, () -> "Press the button you want for each one");
         Ui.ListRow map = row(g, -1, "Controller buttons", Ui.chevron(this), v -> pickMap(false, -1));
         status(map, () -> mS.padMap.isEmpty() ? "Standard" : "Custom");
-        footnote(p, "Player 1 is the first controller the game finds. If your handheld's own buttons act as "
-                + "player 2, choose them here, or pick All controllers together. Buttons are named by where "
+        footnote(p, "Players are given controllers in the order the game finds them. If your handheld's own "
+                + "buttons act as player 2, choose them as player 1 here, or pick All controllers together. "
+                + "For two players, choose a controller for each. Buttons are named by where "
                 + "they are: the bottom face button is A, as on an Xbox controller. Pressing needs the "
                 + "controller to be connected now; the triggers are set from the list.");
     }
@@ -390,33 +394,52 @@ public class Sa2SettingsActivity extends Activity {
         return pads;
     }
 
-    /** Which controller is player 1: the game's own order, every controller as one, or the one whose
-     * button is pressed (the Thor's built-in buttons, say, when the game gave them to player 2). */
-    private void pickFirstPad() {
-        String[] rows = {"Automatic (the first the game finds)", "Press a button on the controller to use",
-                         "All controllers together (one player)"};
-        int on = mS.padFirst.isEmpty() ? 0 : "ALL".equals(mS.padFirst) ? 2 : 1;
-        new AlertDialog.Builder(this).setTitle("Player 1 controller")
+    /** Which controller is player 1 or 2: the game's own order, the one whose button is pressed (the
+     * Thor's built-in buttons, say, when the game gave them to player 2), and for player 1 every
+     * controller as one. */
+    private void pickPad(boolean second) {
+        String who = second ? "Player 2" : "Player 1";
+        String[] rows = second
+                ? new String[] {"Automatic (in the order the game finds them)", "Press a button on the controller to use"}
+                : new String[] {"Automatic (the first the game finds)", "Press a button on the controller to use",
+                                "All controllers together (one player)"};
+        String now = second ? mS.padSecond : mS.padFirst;
+        int on = now.isEmpty() ? 0 : "ALL".equals(now) ? 2 : 1;
+        new AlertDialog.Builder(this).setTitle(who + " controller")
                 .setSingleChoiceItems(rows, on, (dlg, which) -> {
                     dlg.dismiss();
                     if (which == 1) {
-                        pressAButton("Player 1 controller", "Press any button on the controller you want to be "
-                                + "player 1.", (e, device) -> {
+                        pressAButton(who + " controller", "Press any button on the controller you want to be "
+                                + who.toLowerCase(Locale.ROOT) + ".", (e, device) -> {
                             if (device == null) {
                                 Toast.makeText(this, "Android did not say which controller that was.",
                                         Toast.LENGTH_LONG).show();
                                 return;
                             }
-                            mS.padFirst = GameSettings.padFirstFor(device.getVendorId(), device.getProductId(),
+                            String id = GameSettings.padFirstFor(device.getVendorId(), device.getProductId(),
                                     device.getName());
-                            mS.padFirstName = device.getName();
+                            if (second) {
+                                mS.padSecond = id;
+                                mS.padSecondName = device.getName();
+                                if (id.equals(mS.padFirst)) { mS.padFirst = ""; mS.padFirstName = ""; }
+                            } else {
+                                mS.padFirst = id;
+                                mS.padFirstName = device.getName();
+                                if (id.equals(mS.padSecond)) { mS.padSecond = ""; mS.padSecondName = ""; }
+                            }
                             save();
-                            Toast.makeText(this, device.getName() + " is player 1.", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, device.getName() + " is " + who.toLowerCase(Locale.ROOT) + ".",
+                                    Toast.LENGTH_SHORT).show();
                         });
                         return;
                     }
-                    mS.padFirst = which == 2 ? "ALL" : "";
-                    mS.padFirstName = "";
+                    if (second) {
+                        mS.padSecond = "";
+                        mS.padSecondName = "";
+                    } else {
+                        mS.padFirst = which == 2 ? "ALL" : "";
+                        mS.padFirstName = "";
+                    }
                     save();
                 })
                 .setNeutralButton("Connected", (dlg, w) -> {
@@ -426,7 +449,7 @@ public class Sa2SettingsActivity extends Activity {
                                 d.getProductId()));
                     new AlertDialog.Builder(this).setTitle("Controllers connected now")
                             .setMessage(b.length() == 0 ? "None." : b.toString().trim())
-                            .setPositiveButton("OK", (x, y) -> pickFirstPad()).show();
+                            .setPositiveButton("OK", (x, y) -> pickPad(second)).show();
                 })
                 .setNegativeButton("Close", null).show();
     }

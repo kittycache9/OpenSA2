@@ -23,6 +23,7 @@ FIFO this test reads, so each record the game would read is checked byte for byt
     has the same frames table, frame for frame;
   * player one: with SA2_PAD_P1 naming the second pad, by name or by vendor and product, it takes
     slot 0 and the first pad moves up to slot 1; SA2_PAD_P1=ALL sends both pads as slot 0;
+  * player two: SA2_PAD_P2 naming the first pad gives it slot 1 and leaves slot 0 for the next;
   * settings: the same script with SA2_PAD_MAP (a pad's SOUTH and EAST swapped), SA2_TOUCH_MAP
     (the overlay's A sends X) and the overlay bigger with its stick and diamond swapped
     (SA2_TOUCH_SCALE, SA2_TOUCH_LAYOUT) sends the same records with only those buttons changed:
@@ -188,6 +189,16 @@ EXPECTED_P1 = [
     (slot(), slot(), OFF, OFF),
     (OFF, OFF, OFF, OFF),
 ]
+EXPECTED_P2 = [
+    (OFF, OFF, OFF, OFF),
+    (OFF, slot(), OFF, OFF),                     # pad 0 is player two's: slot 1, slot 0 stays empty
+    (slot(), slot(), OFF, OFF),                  # pad 1 takes slot 0
+    (slot(A), slot(), OFF, OFF),
+    (slot(), slot(), OFF, OFF),
+    (slot(), slot(START), OFF, OFF),
+    (slot(), slot(), OFF, OFF),
+    (OFF, OFF, OFF, OFF),
+]
 EXPECTED_ALL = [
     (OFF, OFF, OFF, OFF),
     (slot(), OFF, OFF, OFF),                     # both pads are slot 0: pad 1 changes nothing
@@ -271,7 +282,7 @@ def play(player: Path, stream: Path, out: Path, script: str | None, settings: di
         (out / "shots").mkdir()
         argv += ["--synthetic-input", str(out / "script.tsv"), "--overlay-out", str(out / "shots")]
     env = dict(os.environ, VK_LOADER_LAYERS_DISABLE="~implicit~", SDL_AUDIO_DRIVER="dummy")
-    for k in [k for k in env if k.startswith("SA2_TOUCH_") or k in ("SA2_PAD_MAP", "SA2_PAD_P1")]:
+    for k in [k for k in env if k.startswith("SA2_TOUCH_") or k in ("SA2_PAD_MAP", "SA2_PAD_P1", "SA2_PAD_P2")]:
         env.pop(k)
     env.update(settings or {})
     with (out / "player.out").open("wb") as so:
@@ -342,6 +353,7 @@ def runs(tmp_path_factory):
             "p1_name": play(player, stream, t / "p1_name", P1_SCRIPT, {"SA2_PAD_P1": "NAME:SA2 synthetic pad 1"}),
             "p1_id": play(player, stream, t / "p1_id", P1_SCRIPT, {"SA2_PAD_P1": "ID:5341:0101"}),
             "p1_all": play(player, stream, t / "p1_all", P1_SCRIPT, {"SA2_PAD_P1": "ALL"}),
+            "p2_name": play(player, stream, t / "p2_name", P1_SCRIPT, {"SA2_PAD_P2": "NAME:SA2 synthetic pad 0"}),
             "p1_none": play(player, stream, t / "p1_none", P1_SCRIPT, {"SA2_PAD_P1": "NAME:no such pad"})}
 
 
@@ -459,11 +471,15 @@ def check_p1(r, expected, said_line):
 
 
 def test_a_pad_named_player_one_takes_slot_zero(runs):
-    check_p1(runs["p1_name"], EXPECTED_P1, 'pads: "SA2 synthetic pad 1" is player one (SA2_PAD_P1)\n')
+    check_p1(runs["p1_name"], EXPECTED_P1, 'pads: "SA2 synthetic pad 1" is player 1 (SA2_PAD_P1)\n')
 
 
 def test_a_pad_named_by_vendor_and_product_takes_slot_zero(runs):
-    check_p1(runs["p1_id"], EXPECTED_P1, 'pads: "SA2 synthetic pad 1" is player one (SA2_PAD_P1)\n')
+    check_p1(runs["p1_id"], EXPECTED_P1, 'pads: "SA2 synthetic pad 1" is player 1 (SA2_PAD_P1)\n')
+
+
+def test_a_pad_named_player_two_takes_slot_one(runs):
+    check_p1(runs["p2_name"], EXPECTED_P2, 'pads: "SA2 synthetic pad 0" is player 2 (SA2_PAD_P2)\n')
 
 
 def test_every_pad_together_is_player_one(runs):
@@ -472,7 +488,7 @@ def test_every_pad_together_is_player_one(runs):
 
 def test_a_name_no_pad_has_changes_nothing(runs):
     check_p1(runs["p1_none"], EXPECTED_AUTO, "pads: SA2_PAD_P1=NAME:no such pad\n")
-    assert "is player one" not in (runs["p1_none"]["out"] / "player.out").read_text()
+    assert "is player 1" not in (runs["p1_none"]["out"] / "player.out").read_text()
 
 
 def test_each_pad_is_said_with_its_ids_and_slot(runs):

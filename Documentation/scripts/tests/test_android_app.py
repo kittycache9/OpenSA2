@@ -431,6 +431,7 @@ public class PadDriver {
             case "env": {
                 GameSettings s = new GameSettings();
                 s.padFirst = a[1];
+                s.padSecond = a.length > 2 ? a[2] : "";
                 System.out.print(String.join(" ", s.sessionSettings(2340, 1080)));
                 break;
             }
@@ -478,3 +479,9 @@ def test_player_one_goes_to_the_player_only_when_set(pad_java):
     assert pad_java("env", "") == ""
     assert pad_java("env", "ALL") == "SA2_PAD_P1=ALL"
     assert pad_java("env", "ID:046d:c216") == "SA2_PAD_P1=ID:046d:c216"
+
+
+def test_player_two_goes_to_the_player_unless_the_controllers_are_together(pad_java):
+    assert pad_java("env", "", "ID:046d:c216") == "SA2_PAD_P2=ID:046d:c216"
+    assert pad_java("env", "NAME:Pad A", "NAME:Pad B") == "SA2_PAD_P1=NAME:Pad A SA2_PAD_P2=NAME:Pad B"
+    assert pad_java("env", "ALL", "NAME:Pad B") == "SA2_PAD_P1=ALL"

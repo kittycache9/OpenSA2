@@ -210,7 +210,8 @@
 // Which pad is player one: SA2_PAD_P1=ID:vvvv:pppp (hex vendor and product) or NAME:<device name>
 // gives the pad so named (its joystick name and ids, as each pad is said in the log: "pads: added
 // ...") slot 0, whichever order SDL lists the pads in, the pad it displaces taking the slot the
-// newcomer would have had; of several pads that match, the first keeps slot 0. SA2_PAD_P1=ALL sends
+// newcomer would have had; of several pads that match, the first keeps slot 0. SA2_PAD_P2 names
+// player two's pad the same way, for slot 1. SA2_PAD_P1=ALL sends
 // every pad, and the overlay, as slot 0 (buttons and triggers combined, each stick the one pushed
 // furthest) and leaves slots 1 to 3 empty, for a handheld whose controls SDL lists as several
 // pads. Unset, or a name no pad has, the slots are as before.
@@ -1197,11 +1198,12 @@ private:
     void push_due_synthetic_keys();
     // gamepads and the touch overlay ("Gamepads" above)
     struct PadSlot;
+    struct PadChoice;
     void setup_pads();
     void service_pads();
     void pad_event(const SDL_Event& e);
     void open_pad(SDL_JoystickID id);
-    bool is_player_one_pad(SDL_JoystickID id) const;
+    bool is_choice(const PadChoice& c, SDL_JoystickID id) const;
     void read_pad(PadSlot* s);
     void derive_pad(PadSlot* s) const;
     void place_picture();
@@ -1329,8 +1331,13 @@ private:
         sa2_input::PadState state; // what the game is sent: axes, and held through pad_map_
     };
     PadSlot pad_slots_[sa2_input::kPadSlots];
-    std::string pad_p1_name_;                      // SA2_PAD_P1=NAME:...: the pad that takes slot 0
-    int pad_p1_vendor_ = -1, pad_p1_product_ = -1; // SA2_PAD_P1=ID:...: the same, by ids
+    // SA2_PAD_P1 / SA2_PAD_P2 =NAME:... or =ID:...: the pad that takes slot 0 / slot 1
+    struct PadChoice {
+        std::string name;
+        int vendor = -1, product = -1;
+        bool set() const { return !name.empty() || vendor >= 0; }
+    };
+    PadChoice pad_choice_[2];
     bool pad_p1_all_ = false;                      // SA2_PAD_P1=ALL: every pad is slot 0
     sa2_input::PadOutput pad_map_[SDL_GAMEPAD_BUTTON_COUNT];   // SA2_PAD_MAP, over kPadButtonBits
     float picture_y_ = -1;                         // SA2_PLAYER_PICTURE_Y ("The picture's place"); -1 centred
@@ -4543,15 +4550,19 @@ void Player::setup_pads() {
         if (ok) std::printf("pads: %s=%s\n", k, v);
         else std::printf("pads: %s=%s not used: %s\n", k, v, why.c_str());
     }
-    if (const char* v = getenv("SA2_PAD_P1"); v && *v) {
-        if (std::strcmp(v, "ALL") == 0) pad_p1_all_ = true;
-        else if (std::strncmp(v, "NAME:", 5) == 0 && v[5]) pad_p1_name_ = v + 5;
+    for (int k = 0; k < 2; ++k) {
+        const char* env = k ? "SA2_PAD_P2" : "SA2_PAD_P1";
+        const char* v = getenv(env);
+        if (!v || !*v) continue;
+        PadChoice& c = pad_choice_[k];
+        if (k == 0 && std::strcmp(v, "ALL") == 0) pad_p1_all_ = true;
+        else if (std::strncmp(v, "NAME:", 5) == 0 && v[5]) c.name = v + 5;
         else if (unsigned vid = 0, pid = 0; std::sscanf(v, "ID:%x:%x", &vid, &pid) == 2 && vid <= 0xffff && pid <= 0xffff) {
-            pad_p1_vendor_ = int(vid);
-            pad_p1_product_ = int(pid);
+            c.vendor = int(vid);
+            c.product = int(pid);
         }
-        if (pad_p1_all_ || !pad_p1_name_.empty() || pad_p1_vendor_ >= 0) std::printf("pads: SA2_PAD_P1=%s\n", v);
-        else std::printf("pads: SA2_PAD_P1=%s not used: it is ALL, ID:vvvv:pppp or NAME:<device name>\n", v);
+        if (pad_p1_all_ || c.set()) std::printf("pads: %s=%s\n", env, v);
+        else std::printf("pads: %s=%s not used: it is %sID:vvvv:pppp or NAME:<device name>\n", env, v, k ? "" : "ALL, ");
     }
     sa2_touch::set_settings(touch_, touch_settings);
     sa2_frametime::setup(SA2_PLAYER_GPU != 0, o_.pace && host());   // host tweak frametime-overlay
@@ -4635,12 +4646,12 @@ void Player::derive_pad(PadSlot* s) const {
     s->state = st;
 }
 
-// Whether SA2_PAD_P1 names this pad.
-bool Player::is_player_one_pad(SDL_JoystickID id) const {
-    if (pad_p1_vendor_ >= 0)
-        return SDL_GetJoystickVendorForID(id) == pad_p1_vendor_ && SDL_GetJoystickProductForID(id) == pad_p1_product_;
+// Whether the choice (SA2_PAD_P1 or SA2_PAD_P2) names this pad.
+bool Player::is_choice(const PadChoice& c, SDL_JoystickID id) const {
+    if (c.vendor >= 0)
+        return SDL_GetJoystickVendorForID(id) == c.vendor && SDL_GetJoystickProductForID(id) == c.product;
     const char* device = SDL_GetJoystickNameForID(id);
-    return !pad_p1_name_.empty() && device && pad_p1_name_ == device;
+    return !c.name.empty() && device && c.name == device;
 }
 
 // A gamepad SDL announced: the lowest free slot, sent at once.
@@ -4665,10 +4676,14 @@ void Player::open_pad(SDL_JoystickID id) {
     std::printf("pads: added \"%s\" (vendor %04x product %04x) as slot %d\n", label.c_str(),
                 unsigned(SDL_GetJoystickVendorForID(id)), unsigned(SDL_GetJoystickProductForID(id)),
                 int(free - pad_slots_));
-    if (free != &pad_slots_[0] && is_player_one_pad(id) && !(pad_slots_[0].pad && is_player_one_pad(pad_slots_[0].id))) {
-        std::swap(*free, pad_slots_[0]);            // player one's pad: slot 0, the pad there moves up
-        std::printf("pads: \"%s\" is player one (SA2_PAD_P1)\n", label.c_str());
-        free = &pad_slots_[0];
+    for (int k = 0; k < 2; ++k) {                   // player one's and player two's pads: slot 0 and 1
+        if (!pad_choice_[k].set() || free == &pad_slots_[k] || !is_choice(pad_choice_[k], id)) continue;
+        if (pad_slots_[k].pad && (is_choice(pad_choice_[k], pad_slots_[k].id) ||
+                                  is_choice(pad_choice_[1 - k], pad_slots_[k].id))) continue;
+        std::swap(*free, pad_slots_[k]);            // the pad there moves up to where this one was
+        std::printf("pads: \"%s\" is player %d (SA2_PAD_P%d)\n", label.c_str(), k + 1, k + 1);
+        free = &pad_slots_[k];
+        break;
     }
     read_pad(free);
     ++pads_added_;

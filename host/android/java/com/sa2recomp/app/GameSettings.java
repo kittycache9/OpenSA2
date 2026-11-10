@@ -316,6 +316,7 @@ final class GameSettings {
     String layoutLandscape = "", layoutPortrait = "";  // SA2_TOUCH_LAYOUT, SA2_TOUCH_LAYOUT_PORTRAIT; "" its own
     String touchMap = "", padMap = "";         // SA2_TOUCH_MAP and SA2_PAD_MAP, only what differs
     String padFirst = "", padFirstName = "";   // SA2_PAD_P1 ("" automatic), and the controller's name for the screen
+    String padSecond = "", padSecondName = ""; // SA2_PAD_P2, the same for player 2 (never "ALL")
     final Set<String> tweaksOn = new HashSet<>();  // the TWEAKS names turned on; none by default
 
     static GameSettings load(Context c) {
@@ -341,6 +342,8 @@ final class GameSettings {
         s.padMap = p.getString("pad_map", s.padMap);
         s.padFirst = p.getString("pad_first", s.padFirst);
         s.padFirstName = p.getString("pad_first_name", s.padFirstName);
+        s.padSecond = p.getString("pad_second", s.padSecond);
+        s.padSecondName = p.getString("pad_second_name", s.padSecondName);
         for (Tweak t : TWEAKS) if (p.getBoolean("tweak_" + t.name, false)) s.tweaksOn.add(t.name);
         return s;
     }
@@ -368,7 +371,9 @@ final class GameSettings {
                 .putString("touch_map", touchMap)
                 .putString("pad_map", padMap)
                 .putString("pad_first", padFirst)
-                .putString("pad_first_name", padFirstName);
+                .putString("pad_first_name", padFirstName)
+                .putString("pad_second", padSecond)
+                .putString("pad_second_name", padSecondName);
         for (Tweak t : TWEAKS) e.putBoolean("tweak_" + t.name, tweaksOn.contains(t.name));
         e.commit();
     }
@@ -515,6 +520,7 @@ final class GameSettings {
         if (!touchMap.isEmpty()) e.add("SA2_TOUCH_MAP=" + touchMap);
         if (!padMap.isEmpty()) e.add("SA2_PAD_MAP=" + padMap);
         if (!padFirst.isEmpty()) e.add("SA2_PAD_P1=" + padFirst);
+        if (!padSecond.isEmpty() && !"ALL".equals(padFirst)) e.add("SA2_PAD_P2=" + padSecond);
         // The Sound card's sliders, for volume-levels (runtime/tweaks/volume-levels.c), which they turn on.
         if (tweaksOn.contains(VOLUME_LEVELS) || Arrays.asList(launchTweaks).contains(VOLUME_LEVELS))
             e.addAll(Arrays.asList("SA2_MUSIC_VOLUME=" + musicVolume, "SA2_VOICE_VOLUME=" + voiceVolume,
