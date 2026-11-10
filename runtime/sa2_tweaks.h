@@ -181,6 +181,7 @@
     X(SA2_TWEAK_CHARACTER_SELECT, "character-select", "character pick in Stage Select", "in Stage Select, Y on a stage opens a character picker under the stage's name, and the stage starts with the character picked there; the mission picker follows as usual. Only characters of the stage's kind can be picked (speed, treasure hunt or walker), as the game has start points for no others; ranks save under the stage") \
     X(SA2_TWEAK_DRAW_DISTANCE, "draw-distance", "draw distance doubled", "stage objects appear and stay loaded at twice the usual distance") \
     X(SA2_TWEAK_DRIVES_TO_MINIMALS, "drives-to-minimals", "drives become minimals", "destroyed enemies leave a small animal instead of a Chaos Drive") \
+    X(SA2_TWEAK_ENDLESS_CHAO_ITEMS, "endless-chao-items", "endless chao items", "a small animal or Chaos Drive a Chao eats goes back on the stack of items the player carries and falls again, so it can be given as often as you like") \
     X(SA2_TWEAK_EVENT_BARS_ALL, "event-bars-all", "event-bars always", "black bars at the sides of every cutscene on a wide screen, as on a 4:3 one") \
     X(SA2_TWEAK_FAST_STAGE_LOAD, "fast-stage-load", "fast stage load", "a stage starts as soon as its files are loaded, without the loading screen's wait") \
     X(SA2_TWEAK_FORCE_HARD_LAYOUT, "force-hard-layout", "hard layout", "one-player stages use their Hard Mode (mission 5) object layout in every mission; ten stages wait until the save has the upgrade that layout leaves out") \
