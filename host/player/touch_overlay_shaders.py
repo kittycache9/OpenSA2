@@ -5,7 +5,10 @@ SPIR-V by the Android NDK's glslc and checked by its spirv-val, written as touch
 The overlay draws every control as a rounded box from one uniform block (no vertex buffer, no
 texture): shape i is vertices 6i..6i+5, a quad one pixel larger than the box, whose fragment
 shader takes the box's signed distance for an anti-aliased edge (a ring when it has a
-thickness). The player uses SDL_gpu's Vulkan driver on Linux, Windows and Android, so SPIR-V is
+thickness). A shape's finish is flat (one colour), or glossy for the adventure style
+(touch_overlay.h SA2_TOUCH_STYLE): its colour lighter at the top and darker at the bottom, a soft
+highlight in its upper half and thin horizontal stripes across it, all from that one colour. The
+player uses SDL_gpu's Vulkan driver on Linux, Windows and Android, so SPIR-V is
 the only format needed; SDL's SPIR-V resource sets: a vertex shader's uniform buffers are set 1.
 
   .venv/bin/python host/player/touch_overlay_shaders.py           write the header
@@ -30,7 +33,8 @@ MAX_SHAPES = 32   # touch_overlay.cpp kMaxShapes
 
 VERTEX = f"""#version 450
 // One uniform block: the target's size in pixels, and per shape its box (centre, half size),
-// style (corner radius, ring thickness: 0 filled) and straight-alpha colour.
+// style (corner radius, ring thickness: 0 filled, finish: 0 flat, 1 glossy, the glossy stripes'
+// period in pixels) and straight-alpha colour.
 layout(set = 1, binding = 0) uniform Shapes {{
     vec4 target;
     vec4 geom[{MAX_SHAPES}];
@@ -40,6 +44,7 @@ layout(set = 1, binding = 0) uniform Shapes {{
 layout(location = 0) out vec2 v_local;
 layout(location = 1) flat out vec4 v_box;
 layout(location = 2) flat out vec4 v_color;
+layout(location = 3) flat out vec2 v_finish;
 const vec2 corners[6] = vec2[6](vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
                                 vec2(-1.0, 1.0), vec2(1.0, -1.0), vec2(1.0, 1.0));
 void main() {{
@@ -52,6 +57,7 @@ void main() {{
     v_local = local;
     v_box = vec4(g.zw, style[shape].xy);
     v_color = color[shape];
+    v_finish = style[shape].zw;
 }}
 """
 
@@ -59,6 +65,7 @@ FRAGMENT = """#version 450
 layout(location = 0) in vec2 v_local;
 layout(location = 1) flat in vec4 v_box;
 layout(location = 2) flat in vec4 v_color;
+layout(location = 3) flat in vec2 v_finish;
 layout(location = 0) out vec4 o_color;
 void main() {
     float r = min(v_box.z, min(v_box.x, v_box.y));
@@ -67,7 +74,19 @@ void main() {
     float cover = clamp(0.5 - d, 0.0, 1.0);
     if (v_box.w > 0.0) cover *= clamp(d + v_box.w + 0.5, 0.0, 1.0);
     if (cover <= 0.0) discard;
-    o_color = vec4(v_color.rgb, v_color.a * cover);
+    vec3 rgb = v_color.rgb;
+    if (v_finish.x > 0.5) {
+        // Glossy: lighter at the top, darker at the bottom; a soft highlight across the upper
+        // half; and a dark stripe a third of each period thick, every period pixels down.
+        vec2 u = v_local / v_box.xy;
+        rgb = mix(mix(rgb, vec3(1.0), 0.40), rgb * 0.55, smoothstep(-1.0, 1.0, u.y));
+        float shine = 1.0 - smoothstep(0.25, 0.75, length((u - vec2(0.0, -0.5)) * vec2(0.8, 1.8)));
+        rgb = mix(rgb, vec3(1.0), 0.30 * shine);
+        float period = max(v_finish.y, 3.0);
+        float off = abs(fract((v_local.y + v_box.y) / period) - 0.5) * period;
+        rgb *= 1.0 - 0.14 * clamp(period / 6.0 + 0.5 - off, 0.0, 1.0);
+    }
+    o_color = vec4(rgb, v_color.a * cover);
 }
 """
 

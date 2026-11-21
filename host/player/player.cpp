@@ -199,9 +199,10 @@
 // swapchain texture; nothing is drawn before the first touch. The frame's size goes to the
 // overlay at each Present, which then knows where the picture is (its controls go below a
 // portrait window's picture). The overlay's settings (SA2_TOUCH_SCALE, SA2_TOUCH_OPACITY,
-// SA2_TOUCH_LAYOUT, SA2_TOUCH_LAYOUT_PORTRAIT, SA2_TOUCH_MAP: touch_overlay.h) and SA2_PAD_MAP are
-// read from the environment when the pads are set up, each said in the log ("pads: ..."), a
-// malformed one with why it is not used. SA2_PAD_MAP=BUTTON=OUTPUT,... changes what a physical
+// SA2_TOUCH_LAYOUT, SA2_TOUCH_LAYOUT_PORTRAIT, SA2_TOUCH_MAP, SA2_TOUCH_STYLE, SA2_TOUCH_THEME,
+// SA2_TOUCH_FACE: touch_overlay.h) and SA2_PAD_MAP are read from the environment when the pads are
+// set up, each said in the log ("pads: ..."), a malformed one with why it is not used and one taken
+// with a remark (SA2_TOUCH_THEME=auto) with that remark. SA2_PAD_MAP=BUTTON=OUTPUT,... changes what a physical
 // pad's button sends: BUTTON an SDL button by position (SOUTH EAST WEST NORTH BACK GUIDE START LS
 // RS LB RB UP DOWN LEFT RIGHT MISC1 PADDLE1-4 TOUCHPAD), OUTPUT a game button (input.h
 // pad_output_named; LT and RT hold that trigger all the way). The report's "host_pads" counts
@@ -4541,13 +4542,14 @@ void Player::setup_pads() {
     // The overlay's settings and the pads' map ("Gamepads" above), each said in the log.
     sa2_touch::Settings touch_settings;
     for (const char* k : {"SA2_TOUCH_SCALE", "SA2_TOUCH_OPACITY", "SA2_TOUCH_LAYOUT", "SA2_TOUCH_LAYOUT_PORTRAIT",
-                          "SA2_TOUCH_MAP", "SA2_PAD_MAP"}) {
+                          "SA2_TOUCH_MAP", "SA2_TOUCH_STYLE", "SA2_TOUCH_THEME", "SA2_TOUCH_FACE", "SA2_PAD_MAP"}) {
         const char* v = getenv(k);
         if (!v || !*v) continue;
         std::string why;
         const bool ok = std::strcmp(k, "SA2_PAD_MAP") == 0 ? parse_pad_map(v, pad_map_, &why)
                                                             : sa2_touch::parse_setting(k, v, &touch_settings, &why);
-        if (ok) std::printf("pads: %s=%s\n", k, v);
+        if (ok && why.empty()) std::printf("pads: %s=%s\n", k, v);
+        else if (ok) std::printf("pads: %s=%s (%s)\n", k, v, why.c_str());
         else std::printf("pads: %s=%s not used: %s\n", k, v, why.c_str());
     }
     for (int k = 0; k < 2; ++k) {

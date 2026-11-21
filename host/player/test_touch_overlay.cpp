@@ -3,10 +3,13 @@
 // controls in the band under a portrait window's picture, and what it draws on a real SDL_gpu
 // device (Vulkan, no window): an offscreen target cleared to black, the overlay drawn over it,
 // read back and its pixels checked where each control is and where none is; nothing drawn while
-// inactive or at opacity 0; and its cost per frame, CPU encoding and GPU time, over many frames
+// inactive or at opacity 0; the adventure style (its theme's colour, the glossy faces' gradient and
+// stripes, two face buttons); and its cost per frame, CPU encoding and GPU time, over many frames
 // at 1920x1080.
 //
-//   test_touch_overlay [OUT_DIR]     OUT_DIR gets overlay.png (the drawn frame) when given
+//   test_touch_overlay [OUT_DIR]     OUT_DIR gets overlay.png (the drawn frame), overlay-portrait.png,
+//                                    overlay-adventure.png (sonic), overlay-adventure-knuckles.png
+//                                    and overlay-adventure-two.png (two face buttons) when given
 //
 // Exit 0 and "TOUCH_OVERLAY_OK" when every check passes.
 #include "touch_overlay.h"
@@ -24,6 +27,8 @@
 #include <vector>
 
 using sa2_touch::Control;
+using sa2_touch::Style;
+using sa2_touch::Theme;
 
 static int fails = 0;
 #define CHECK(c, ...)                                                          \
@@ -125,6 +130,16 @@ struct Bgr { int b, g, r; };
 static Bgr pixel(const std::vector<uint8_t>& px, uint32_t w, float x, float y) {
     const size_t i = (size_t(std::lround(y)) * w + size_t(std::lround(x))) * 4;
     return {px[i], px[i + 1], px[i + 2]};
+}
+// The mean colour of the (2 rad + 1) square around (x, y): a glossy face's stripes averaged out.
+static Bgr patch(const std::vector<uint8_t>& px, uint32_t w, float x, float y, int rad) {
+    int n = 0, b = 0, g = 0, r = 0;
+    for (int dy = -rad; dy <= rad; ++dy)
+        for (int dx = -rad; dx <= rad; ++dx) {
+            const Bgr p = pixel(px, w, x + dx, y + dy);
+            b += p.b; g += p.g; r += p.r; ++n;
+        }
+    return {b / n, g / n, r / n};
 }
 static uint64_t lit(const std::vector<uint8_t>& px) {
     uint64_t n = 0;
@@ -246,6 +261,73 @@ int main(int argc, char** argv) {
         for (const char* bad : {"A=JUMP", "Z=A", "A", "A=B,"})
             CHECK(!parse("SA2_TOUCH_MAP", bad) && !s.mapped[1], "map \"%s\" taken", bad);
         CHECK(!parse("SA2_TOUCH_SIZE", "1"), "an unknown name taken");
+        // The style, its theme and the face buttons: exact lower-case names, a bad one refused with
+        // why and the setting unchanged.
+        CHECK(s.style == Style::Classic && s.theme == Theme::Sonic && !s.two_buttons, "not classic by default");
+        CHECK(parse("SA2_TOUCH_STYLE", "adventure") && s.style == Style::Adventure && why.empty(), "style: %s",
+              why.c_str());
+        for (const char* bad : {"", "Adventure", "modern", "adventure ", "1"})
+            CHECK(!parse("SA2_TOUCH_STYLE", bad) && s.style == Style::Adventure && why == "not classic or adventure",
+                  "style \"%s\" taken (%s)", bad, why.c_str());
+        CHECK(parse("SA2_TOUCH_STYLE", "classic") && s.style == Style::Classic, "style classic: %s", why.c_str());
+        CHECK(parse("SA2_TOUCH_THEME", "knuckles") && s.theme == Theme::Knuckles && why.empty(), "theme: %s",
+              why.c_str());
+        CHECK(parse("SA2_TOUCH_THEME", "auto") && s.theme == Theme::Sonic &&
+              why.find("not known to the player yet") != std::string::npos, "theme auto: %s", why.c_str());
+        CHECK(parse("SA2_TOUCH_THEME", "metal") && s.theme == Theme::Metal && why.empty(), "theme metal: %s",
+              why.c_str());
+        for (const char* bad : {"", "Sonic", "blue", "auto,", "knuckles;", "silver"})
+            CHECK(!parse("SA2_TOUCH_THEME", bad) && s.theme == Theme::Metal && why.find("not one of") == 0,
+                  "theme \"%s\" taken (%s)", bad, why.c_str());
+        CHECK(parse("SA2_TOUCH_FACE", "two") && s.two_buttons, "face two: %s", why.c_str());
+        for (const char* bad : {"", "2", "Two", "four,two"})
+            CHECK(!parse("SA2_TOUCH_FACE", bad) && s.two_buttons && why == "not four or two", "face \"%s\" taken",
+                  bad);
+        CHECK(parse("SA2_TOUCH_FACE", "four") && !s.two_buttons, "face four: %s", why.c_str());
+    }
+    {
+        // Two face buttons: JUMP (A) below right and ACTION (B) above left in the diamond's own box,
+        // its centre where the diamond's is (the layout editor's FACE group does not move); no X
+        // or Y; nothing between the two; START still there.
+        sa2_touch::Overlay* q = sa2_touch::create(nullptr, nullptr);
+        sa2_touch::Settings s;
+        std::string why;
+        sa2_touch::parse_setting("SA2_TOUCH_FACE", "two", &s, &why);
+        sa2_touch::set_settings(q, s);
+        float jx, jy, acx, acy, a4x, a4y, y4x, y4y, hw, hh, qx, qy;
+        sa2_touch::control_centre(q, W, H, Control::A, &jx, &jy);
+        sa2_touch::control_centre(q, W, H, Control::B, &acx, &acy);
+        sa2_touch::control_centre(nullptr, W, H, Control::A, &a4x, &a4y);
+        sa2_touch::control_centre(nullptr, W, H, Control::Y, &y4x, &y4y);
+        const float fx = a4x, fy = (a4y + y4y) / 2, o2 = 0.11f * H;
+        CHECK(std::fabs(jx - (fx + o2)) < 0.01f && std::fabs(jy - (fy + o2)) < 0.01f, "JUMP at %.1f,%.1f", jx, jy);
+        CHECK(std::fabs(acx - (fx - o2)) < 0.01f && std::fabs(acy - (fy - o2)) < 0.01f, "ACTION at %.1f,%.1f", acx,
+              acy);
+        sa2_touch::control_box(q, W, H, Control::A, &qx, &qy, &hw, &hh);
+        CHECK(std::fabs(hw - 0.10f * H) < 0.01f && hw == hh, "JUMP's half size %.2f", hw);
+        for (Control c : {Control::X, Control::Y}) {
+            sa2_touch::control_box(q, W, H, c, &qx, &qy, &hw, &hh);
+            CHECK(hw == 0 && hh == 0 && std::fabs(qx - fx) < 0.01f && std::fabs(qy - fy) < 0.01f,
+                  "control %d is there: %.1f,%.1f %.1fx%.1f", int(c), qx, qy, hw, hh);
+        }
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 1, jx / W, jy / H));
+        CHECK(pad_of(q).buttons == 0x1000, "JUMP sends %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 2, acx / W, acy / H));
+        CHECK(pad_of(q).buttons == (0x1000 | 0x2000), "JUMP and ACTION send %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 1, 0, 0));
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 2, 0, 0));
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 3, fx / W, fy / H));
+        CHECK(pad_of(q).buttons == 0 && pad_of(q).lx == 0, "between the two: %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 3, 0, 0));
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 4, stx, sty));
+        CHECK(pad_of(q).buttons == 0x0010, "START with two face buttons: %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 4, 0, 0));
+        // SA2_TOUCH_MAP still applies: JUMP sends what A is mapped to.
+        sa2_touch::parse_setting("SA2_TOUCH_MAP", "A=Y", &s, &why);
+        sa2_touch::set_settings(q, s);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 5, jx / W, jy / H));
+        CHECK(pad_of(q).buttons == 0x8000, "JUMP mapped to Y sends %04x", pad_of(q).buttons);
+        sa2_touch::destroy(q);
     }
     {
         // Bigger, moved and remapped: the stick on the right, the diamond on the left, A sends B
@@ -460,6 +542,91 @@ int main(int argc, char** argv) {
         const uint64_t draws = sa2_touch::stats(o).draws;
         CHECK(frame(&g, o, &px) && lit(px) == 0 && sa2_touch::stats(o).draws == draws, "opacity 0 drew %llu pixels",
               (unsigned long long)lit(px));
+        sa2_touch::set_settings(o, sa2_touch::Settings{});
+        sa2_touch::deactivate(o);
+    }
+    // The adventure style: A held and the stick pushed as above. Each face in the theme's colour,
+    // lighter at its top than its bottom, striped across, inside a rim of the darker colour; the
+    // held one darker; the stick's base tinted; nothing away from the controls.
+    {
+        sa2_touch::Settings s;
+        std::string why;
+        sa2_touch::parse_setting("SA2_TOUCH_STYLE", "adventure", &s, &why);
+        sa2_touch::set_settings(o, s);
+        const auto save = [&](const char* name) {
+            if (out.empty()) return;
+            std::string err;
+            const std::string path = out + "/" + name;
+            CHECK(tex::write_png_rgb(path.c_str(), px.data(), W, H, W * 4, &err), "png: %s", err.c_str());
+            std::printf("wrote %s\n", path.c_str());
+        };
+        sa2_touch::handle_event(o, finger(SDL_EVENT_FINGER_DOWN, 1, ax, ay));
+        sa2_touch::handle_event(o, finger(SDL_EVENT_FINGER_DOWN, 2, sx, sy));
+        sa2_touch::handle_event(o, finger(SDL_EVENT_FINGER_MOTION, 2, sx + 1.4f * R / W, sy - 1.4f * R / H));
+        CHECK(frame(&g, o, &px), "frame: %s", SDL_GetError());
+        save("overlay-adventure.png");
+        const int rad = 7;   // over a stripe's period (0.014 of 720: 10 pixels)
+        const auto face = [&](Control c) { sa2_touch::control_centre(o, W, H, c, &x, &y); return patch(px, W, x, y, rad); };
+        for (Control c : {Control::A, Control::B, Control::X, Control::Y, Control::Start, Control::LT, Control::RT}) {
+            const Bgr f = face(c);
+            CHECK(f.b > 70 && f.b > f.r + 40 && f.b > f.g + 25, "control %d is not sonic's blue: %d,%d,%d", int(c),
+                  f.b, f.g, f.r);
+        }
+        const Bgr held = face(Control::A), idle = face(Control::B);
+        CHECK(held.b + 8 < idle.b, "the held face is not darker: %d, idle %d", held.b, idle.b);
+        // B's column: its top brighter than its bottom; and dips, a stripe each, between.
+        float b_x, b_y;
+        sa2_touch::control_centre(o, W, H, Control::B, &b_x, &b_y);
+        const float rb = 0.075f * H;
+        const Bgr top = patch(px, W, b_x, b_y - 0.6f * rb, 3), bottom = patch(px, W, b_x, b_y + 0.6f * rb, 3);
+        CHECK(top.b > bottom.b + 30 && top.g > bottom.g + 15, "no gradient: top %d,%d,%d bottom %d,%d,%d", top.b,
+              top.g, top.r, bottom.b, bottom.g, bottom.r);
+        int dips = 0;
+        bool in_dip = false;
+        for (int row = int(b_y - 0.5f * rb); row <= int(b_y + 0.5f * rb); ++row) {
+            const int v = pixel(px, W, b_x, float(row)).b, up = pixel(px, W, b_x, float(row - 3)).b,
+                      down = pixel(px, W, b_x, float(row + 3)).b;
+            const bool dip = v + 6 < up && v + 6 < down;
+            if (dip && !in_dip) ++dips;
+            in_dip = dip;
+        }
+        CHECK(dips >= 4, "%d stripes across B's middle", dips);
+        // The rim, just inside B's edge: the dark rim colour (#0b2f8a), little red.
+        const Bgr rim = pixel(px, W, b_x + rb - 2.0f, b_y);
+        CHECK(rim.b > 70 && rim.r < 30 && rim.b > rim.r + 50, "B's rim %d,%d,%d", rim.b, rim.g, rim.r);
+        const Bgr base = pixel(px, W, sx * W - 0.6f * R, sy * H + 0.2f * R);
+        CHECK(base.b > 20 && base.b > base.r + 15, "the stick's base is not tinted: %d,%d,%d", base.b, base.g, base.r);
+        const Bgr knob = patch(px, W, sx * W + 0.7f * R, sy * H - 0.7f * R, 3);
+        CHECK(knob.b > 70 && knob.b > knob.r + 30, "the knob is not glossy blue: %d,%d,%d", knob.b, knob.g, knob.r);
+        const Bgr mid = pixel(px, W, W * 0.5f, H * 0.5f), corner = pixel(px, W, W - 3.0f, H * 0.5f);
+        CHECK(mid.r + mid.g + mid.b == 0 && corner.r + corner.g + corner.b == 0, "adventure drew away from the controls");
+        const double cover = double(lit(px)) / (double(W) * H);
+        std::printf("adventure: A held %d,%d,%d  B %d,%d,%d  B's top %d bottom %d, %d stripes; covers %.1f%%\n",
+                    held.b, held.g, held.r, idle.b, idle.g, idle.r, top.b, bottom.b, dips, 100.0 * cover);
+        CHECK(cover > 0.03 && cover < 0.35, "adventure coverage %.3f", cover);
+        // Knuckles: red.
+        sa2_touch::parse_setting("SA2_TOUCH_THEME", "knuckles", &s, &why);
+        sa2_touch::set_settings(o, s);
+        CHECK(frame(&g, o, &px), "frame: %s", SDL_GetError());
+        save("overlay-adventure-knuckles.png");
+        const Bgr kb = face(Control::B);
+        CHECK(kb.r > 70 && kb.r > kb.b + 40 && kb.r > kb.g + 40, "B is not knuckles' red: %d,%d,%d", kb.b, kb.g, kb.r);
+        // Two face buttons: JUMP and ACTION drawn, and nothing where X and Y were (outside both).
+        sa2_touch::parse_setting("SA2_TOUCH_THEME", "sonic", &s, &why);
+        sa2_touch::parse_setting("SA2_TOUCH_FACE", "two", &s, &why);
+        sa2_touch::set_settings(o, s);
+        sa2_touch::deactivate(o);
+        float jx, jy;
+        sa2_touch::control_centre(o, W, H, Control::A, &jx, &jy);
+        sa2_touch::handle_event(o, finger(SDL_EVENT_FINGER_DOWN, 1, jx / W, jy / H));
+        CHECK(frame(&g, o, &px), "frame: %s", SDL_GetError());
+        save("overlay-adventure-two.png");
+        const Bgr jump = face(Control::A), action = face(Control::B);
+        CHECK(jump.b > 70 && jump.b > jump.r + 40 && action.b > 70 && action.b > action.r + 40 && jump.b + 8 < action.b,
+              "JUMP (held) %d,%d,%d and ACTION %d,%d,%d", jump.b, jump.g, jump.r, action.b, action.g, action.r);
+        const Bgr was_x = pixel(px, W, bx * W - 2 * 0.135f * H, by * H), was_y = pixel(px, W, yx * W, yy * H);
+        CHECK(was_x.r + was_x.g + was_x.b == 0 && was_y.r + was_y.g + was_y.b == 0,
+              "drawn where X or Y were: %d,%d,%d %d,%d,%d", was_x.b, was_x.g, was_x.r, was_y.b, was_y.g, was_y.r);
         sa2_touch::set_settings(o, sa2_touch::Settings{});
         sa2_touch::deactivate(o);
     }
