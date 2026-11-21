@@ -39,11 +39,15 @@
  * the game's own handling of a held item, not something this file decides. If a Chao keeps holding
  * the item or eats it again at once, the fields written back are the place to look.
  *
+ * SA2_ENDLESS_DEBUG=1 says, once each, the states the eating state is called in and the first reason
+ * a call is not taken as a meal.
+ *
  * The first time it keeps an item, the run says so: "sa2 tweaks: endless chao items: a Chao ate
  * item type N; the item was kept usable".
  */
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "cpu_state.h"
 #include "guest_memory.h"
@@ -65,7 +69,20 @@ struct endless_task {
     uint16_t word;
 };
 
-static int g_endless_said;
+static int g_endless_said, g_endless_debug = -1;
+static unsigned g_endless_seen;   /* SA2_ENDLESS_DEBUG: each reason and state said once */
+
+/* SA2_ENDLESS_DEBUG=1: say, once each, the states the eating state is called in and why a call is
+ * not taken as a meal, so a garden run shows where the wrap and the game part ways. */
+static void endless_note(unsigned bit, const char *what, unsigned value) {
+    if (g_endless_debug < 0) {
+        const char *v = getenv("SA2_ENDLESS_DEBUG");
+        g_endless_debug = v && v[0] == '1';
+    }
+    if (!g_endless_debug || bit >= 32 || (g_endless_seen & (1u << bit))) return;
+    g_endless_seen |= 1u << bit;
+    fprintf(stderr, "sa2 tweaks: endless chao items: debug: %s %#x\n", what, value);
+}
 
 void *__real_sub_566df0(void *state, uint32_t pc, void *memory);
 
@@ -92,15 +109,17 @@ static int endless_item(uint32_t task, struct endless_task *item, struct endless
     uint32_t data = 0, addr = 0, back = 0, partner_item = 0, body = 0;
     uint16_t state = 0;
     uint8_t kind = 0;
-    if (!rd32(task + ENDLESS_TASK_DATA, &data) || !data) return 0;
-    if (!rd16(data + ENDLESS_STATE, &state) || state != 1) return 0;
-    if (!rd32(task + ENDLESS_TASK_HELD, &addr) || !addr) return 0;
-    if (!save_task(item, addr)) return 0;
-    if (!item->link || !save_task(pair, item->link)) return 0;
-    if (!rd32(pair->addr + ENDLESS_LINK, &back) || back != item->addr) return 0;
-    if (!rd32(pair->addr + ENDLESS_TASK_HELD, &partner_item) || !partner_item) return 0;
-    if (!rd32(partner_item + ENDLESS_TASK_DATA, &body) || !body) return 0;
-    if (!rd8(body + 3u, &kind) || kind > ENDLESS_LAST_TYPE) return 0;
+    if (!rd32(task + ENDLESS_TASK_DATA, &data) || !data) { endless_note(1, "no task data, task", task); return 0; }
+    if (!rd16(data + ENDLESS_STATE, &state)) { endless_note(2, "state unreadable, data", data); return 0; }
+    endless_note(8 + (state & 15u), "called in state", state);
+    if (state != 1) return 0;
+    if (!rd32(task + ENDLESS_TASK_HELD, &addr) || !addr) { endless_note(3, "no held item, task", task); return 0; }
+    if (!save_task(item, addr)) { endless_note(4, "held item unreadable", addr); return 0; }
+    if (!item->link || !save_task(pair, item->link)) { endless_note(5, "no partner, item", addr); return 0; }
+    if (!rd32(pair->addr + ENDLESS_LINK, &back) || back != item->addr) { endless_note(6, "partner does not point back, it points at", back); return 0; }
+    if (!rd32(pair->addr + ENDLESS_TASK_HELD, &partner_item) || !partner_item) { endless_note(7, "no partner item, partner", pair->addr); return 0; }
+    if (!rd32(partner_item + ENDLESS_TASK_DATA, &body) || !body) { endless_note(24, "no item data, item", partner_item); return 0; }
+    if (!rd8(body + 3u, &kind) || kind > ENDLESS_LAST_TYPE) { endless_note(25, "item type out of range", kind); return 0; }
     *type = kind;
     return 1;
 }
@@ -111,14 +130,17 @@ void *__wrap_sub_566df0(void *state, uint32_t pc, void *memory) {
     struct endless_task item, pair;
     uint32_t task = 0, type = 0;
     const uint32_t esp = sa2_rt_get_gpr(state, SA2_ESP);
+    endless_note(0, "the eating state is called, esp", esp);
     const int eating = sa2_peek(esp + 4u, 4, &task) == SA2_OK && endless_item(task, &item, &pair, &type);
     memory = __real_sub_566df0(state, pc, memory);
     if (!eating) return memory;
     uint32_t data = 0, link = 1;
     uint16_t after = 0;
     if (!rd32(task + ENDLESS_TASK_DATA, &data) || !rd16(data + ENDLESS_STATE, &after) || after != 2 ||
-        !rd32(item.addr + ENDLESS_LINK, &link) || link != 0)
+        !rd32(item.addr + ENDLESS_LINK, &link) || link != 0) {
+        endless_note(26, "not eaten this call, state after", after);
         return memory;
+    }
     if (!restore_task(&pair) || !restore_task(&item)) return memory;
     if (!g_endless_said++)
         fprintf(stderr, "sa2 tweaks: endless chao items: a Chao ate item type %u; the item was kept "
