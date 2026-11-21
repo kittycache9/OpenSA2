@@ -860,6 +860,39 @@ def test_the_host_reader_names_another_homes_tweak_and_leaves_the_games_names_al
         '"zz-player" (the player\'s))]']
 
 
+NAMES_DRIVER = r"""
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include "tweaks.h"
+int main(int argc, char** argv) {
+    const sa2tw::Reading r = sa2tw::read(std::getenv("SA2_TWEAKS"), argc > 1 ? argv[1] : nullptr, "player");
+    sa2tw::g_names = r.names;
+    for (const std::string& n : r.names) std::printf("%s|", n.c_str());
+    std::printf("\n%d\n", sa2tw::named("action-buttons"));
+    return 0;
+}
+"""
+
+
+def test_the_host_reader_keeps_every_name_for_a_host_change_that_follows_a_game_tweak(host_exes):
+    """Reading.names and sa2tw::named (host/player/tweaks.h): every name the value gives, the
+    game's too, trimmed, once each, in order; none when the tweaks are off (the touch overlay asks
+    named("action-buttons") to show Y in a stage)."""
+    d = host_exes["dir"]
+    (d / "names.cpp").write_text(NAMES_DRIVER)
+    done = subprocess.run([*CXX, "-I", str(d / "host" / "player"), str(d / "names.cpp"),
+                           str(d / "host" / "player" / "tweaks.cpp"), "-o", str(d / "names")],
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    names = lambda *a, **env: subprocess.run([str(d / "names"), *a], capture_output=True, text=True, check=True,
+                                             env={**os.environ, **env}).stdout.splitlines()
+    assert names(SA2_TWEAKS=" action-buttons ,zz-player,,action-buttons,bogus") == [
+        "action-buttons|zz-player|bogus|", "1"]
+    assert names(SA2_TWEAKS="no-event-bars") == ["no-event-bars|", "0"]
+    assert names("outside play (a test)", SA2_TWEAKS="action-buttons") == ["", "0"]
+
+
 @pytest.mark.parametrize("why, env, said", [
     ("outside play (play is --interactive with --input-path)", {},
      "ignored outside play (play is --interactive with --input-path)"),

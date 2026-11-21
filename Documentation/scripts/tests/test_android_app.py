@@ -565,7 +565,9 @@ def touch_look_java(tmp_path_factory):
 @pytest.mark.parametrize("stored, settings", [
     ((), ""),                                                        # the defaults send nothing
     (("classic", "sonic", "four"), ""),
-    (("adventure",), "SA2_TOUCH_STYLE=adventure"),                   # sonic is the overlay's own colour
+    (("adventure",), "SA2_TOUCH_STYLE=adventure"),                   # auto is the overlay's own colour
+    (("adventure", "auto"), "SA2_TOUCH_STYLE=adventure"),
+    (("adventure", "sonic"), "SA2_TOUCH_STYLE=adventure SA2_TOUCH_THEME=sonic"),   # sonic whatever the character
     (("adventure", "knuckles"), "SA2_TOUCH_STYLE=adventure SA2_TOUCH_THEME=knuckles"),
     (("adventure", "chao", "two"), "SA2_TOUCH_STYLE=adventure SA2_TOUCH_THEME=chao SA2_TOUCH_FACE=two"),
     (("classic", "knuckles"), ""),                                   # a colour only the adventure style has
@@ -576,8 +578,8 @@ def touch_look_java(tmp_path_factory):
 def test_the_touch_look_goes_to_the_player_only_when_not_the_default(touch_look_java, stored, settings):
     got, styles, themes, faces, defaults = touch_look_java(*stored)
     assert got == settings
-    assert (styles, faces, defaults) == ("classic,adventure", "four,two", "classic,sonic,four")
-    assert themes == "sonic,shadow,knuckles,tails,rouge,amy,eggman,metal,chao"
+    assert (styles, faces, defaults) == ("classic,adventure", "four,two", "classic,auto,four")
+    assert themes == "auto,sonic,shadow,knuckles,tails,rouge,amy,eggman,metal,chao"
 
 
 def test_the_touch_look_matches_the_overlays_names():
@@ -587,14 +589,14 @@ def test_the_touch_look_matches_the_overlays_names():
     themes = re.search(r"kThemeNames\[kThemes\] = \{([^}]*)\}", overlay).group(1)
     assert re.findall(r'"(\w+)"', themes) == ["sonic", "shadow", "knuckles", "tails", "rouge", "amy", "eggman",
                                               "metal", "chao"]
-    for value in ("classic", "adventure", "four", "two"):
+    for value in ("classic", "adventure", "four", "two", "auto"):
         assert f'value == "{value}"' in overlay
     java = (ROOT / "host/android/java/com/sa2recomp/app/Sa2SettingsActivity.java").read_text()
     assert 'TOUCH_STYLE_NAMES = {"Classic", "Adventure"}' in java
     assert 'TOUCH_FACE_NAMES = {"A, B, X and Y", "Jump and Action"}' in java
     names = re.search(r"TOUCH_THEME_NAMES = \{([^}]*)\}", java).group(1)
     assert [n.split(" (")[0] for n in re.findall(r'"([^"]+)"', names)] == [
-        "Sonic", "Shadow", "Knuckles", "Tails", "Rouge", "Amy", "Eggman", "Metal Sonic", "Chao"]
+        "Auto", "Sonic", "Shadow", "Knuckles", "Tails", "Rouge", "Amy", "Eggman", "Metal Sonic", "Chao"]
     assert 'choice(look, "Style", TOUCH_STYLE_NAMES,' in java and 'choice(look, "Colour", TOUCH_THEME_NAMES,' in java
     assert 'choice(layout, "Face buttons", TOUCH_FACE_NAMES,' in java
     # The native session passes every SA2_TOUCH_* setting to the player as it is.

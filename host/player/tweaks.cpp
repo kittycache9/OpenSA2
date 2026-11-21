@@ -3,6 +3,7 @@
 // SA2_TWEAK_HOST_LIST is read, reported and left to its home here as every other is.
 #include "tweaks.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 
@@ -53,6 +54,7 @@ Reading read(const char* value, const char* why_off, const char* home) {
         while (a < b && (*a == ' ' || *a == '\t')) a++;
         while (b > a && (b[-1] == ' ' || b[-1] == '\t')) b--;
         const std::string name(a, b);
+        if (!name.empty() && std::find(r.names.begin(), r.names.end(), name) == r.names.end()) r.names.push_back(name);
         for (unsigned i = 0; kRows[i].name; i++)
             if (name == kRows[i].name) named |= 1u << i;
         p = *end ? end + 1 : end;

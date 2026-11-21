@@ -4,12 +4,20 @@
 // device (Vulkan, no window): an offscreen target cleared to black, the overlay drawn over it,
 // read back and its pixels checked where each control is and where none is; nothing drawn while
 // inactive or at opacity 0; the adventure style (its theme's colour, the glossy faces' gradient and
-// stripes, two face buttons); and its cost per frame, CPU encoding and GPU time, over many frames
-// at 1920x1080.
+// stripes, two face buttons); the game's state (its note parsed, the context and auto theme it
+// makes, the controls each context shows and hides, a hidden control's touches doing nothing);
+// the game's art from a PAK this test writes itself (its pictures drawn by code, no game file):
+// drawn, turned to each theme, its held look, refused with a reason when missing or malformed
+// (and the shader's look drawn then); and its cost per frame, CPU encoding and GPU time, over
+// many frames at 1920x1080.
 //
-//   test_touch_overlay [OUT_DIR]     OUT_DIR gets overlay.png (the drawn frame), overlay-portrait.png,
-//                                    overlay-adventure.png (sonic), overlay-adventure-knuckles.png
-//                                    and overlay-adventure-two.png (two face buttons) when given
+//   test_touch_overlay [OUT_DIR [INSTALL]]
+//       OUT_DIR gets overlay.png (the drawn frame), overlay-portrait.png, overlay-adventure.png
+//       (sonic), overlay-adventure-knuckles.png, overlay-adventure-two.png (two face buttons),
+//       overlay-art.png and overlay-art-knuckles.png (the test's own art) when given. INSTALL, a
+//       game install on this machine, is also loaded and drawn (overlay-real-sonic.png and
+//       overlay-real-knuckles.png in OUT_DIR, which must not be a tracked folder: they hold the
+//       game's art).
 //
 // Exit 0 and "TOUCH_OVERLAY_OK" when every check passes.
 #include "touch_overlay.h"
@@ -22,6 +30,10 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -127,6 +139,19 @@ static bool frame(Gpu* g, sa2_touch::Overlay* o, std::vector<uint8_t>* px) {
 }
 
 struct Bgr { int b, g, r; };
+static int fails_png = 0;
+static void save_png(const std::string& dir, const std::string& name, const std::vector<uint8_t>& px, uint32_t w,
+                     uint32_t h) {
+    if (dir.empty()) return;
+    std::string err;
+    const std::string path = dir + "/" + name;
+    if (!tex::write_png_rgb(path.c_str(), px.data(), w, h, w * 4, &err)) {
+        std::printf("FAIL png %s: %s\n", path.c_str(), err.c_str());
+        ++fails_png;
+    } else {
+        std::printf("wrote %s\n", path.c_str());
+    }
+}
 static Bgr pixel(const std::vector<uint8_t>& px, uint32_t w, float x, float y) {
     const size_t i = (size_t(std::lround(y)) * w + size_t(std::lround(x))) * 4;
     return {px[i], px[i + 1], px[i + 2]};
@@ -147,8 +172,78 @@ static uint64_t lit(const std::vector<uint8_t>& px) {
     return n;
 }
 
+// ---------------------------------------------------------------- a test PAK, drawn by code
+static void put32(std::vector<uint8_t>* b, uint32_t v) {
+    for (int i = 0; i < 4; ++i) b->push_back(uint8_t(v >> (8 * i)));
+}
+// An uncompressed A8R8G8B8 DDS of w x h whose pixel (x, y) is f's {b, g, r, a}.
+static std::vector<uint8_t> dds(uint32_t w, uint32_t h, const std::function<void(int, int, uint8_t*)>& f) {
+    std::vector<uint8_t> b = {'D', 'D', 'S', ' '};
+    const uint32_t head[31] = {124, 0x100F, h, w, w * 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                               32, 0x41, 0, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000, 0x1000, 0, 0, 0, 0};
+    for (uint32_t v : head) put32(&b, v);
+    for (uint32_t y = 0; y < h; ++y)
+        for (uint32_t x = 0; x < w; ++x) {
+            uint8_t px[4] = {0, 0, 0, 0};
+            f(int(x), int(y), px);
+            b.insert(b.end(), px, px + 4);
+        }
+    return b;
+}
+static float edge(float d) { return std::max(0.0f, std::min(1.0f, 0.5f - d)); }   // inside a distance's edge
+// A PAK of members {name, bytes}, as newMenu.pak is laid out (touch_overlay.cpp read_pak).
+static std::vector<uint8_t> pak(const std::vector<std::pair<std::string, std::vector<uint8_t>>>& members) {
+    std::vector<uint8_t> b(0x39, 0);
+    b[0] = 1; b[1] = 'p'; b[2] = 'a'; b[3] = 'k';
+    put32(&b, uint32_t(members.size()));
+    for (const auto& [name, data] : members) {
+        const std::string path = "c:\\test\\newmenu\\" + name, rel = "newmenu\\" + name;
+        for (const std::string& str : {path, rel}) {
+            put32(&b, uint32_t(str.size()));
+            b.insert(b.end(), str.begin(), str.end());
+        }
+        put32(&b, uint32_t(data.size()));
+        put32(&b, uint32_t(data.size()));
+    }
+    for (const auto& m : members) b.insert(b.end(), m.second.begin(), m.second.end());
+    return b;
+}
+// The test's art, the four members' sizes and their parts where the game's are: a blue striped
+// disc and a darker one, a red arc about (72, 72) with a white middle line 66 out, two blue bars.
+static const uint8_t kArtBlue[3] = {230, 90, 30}, kArtHeld[3] = {140, 45, 15};   // BGR
+static std::vector<std::pair<std::string, std::vector<uint8_t>>> test_members() {
+    const auto disc = [](const uint8_t* bgr) {
+        return dds(128, 128, [bgr](int x, int y, uint8_t* p) {
+            const float d = std::hypot(x + 0.5f - 64, y + 0.5f - 64) - 62;
+            const float k = (y % 6 < 2) ? 0.8f : 1.0f;   // stripes
+            for (int i = 0; i < 3; ++i) p[i] = uint8_t(bgr[i] * k);
+            p[3] = uint8_t(255 * edge(d));
+        });
+    };
+    const auto arc = dds(128, 128, [](int x, int y, uint8_t* p) {
+        const float r = std::hypot(x + 0.5f - 72, y + 0.5f - 72);
+        if (x >= 72 || y >= 72) return;
+        const bool middle = std::fabs(r - 66) < 1.5f;
+        p[0] = middle ? 255 : 0; p[1] = middle ? 255 : 0; p[2] = 255;
+        p[3] = uint8_t(255 * edge(std::fabs(r - 66) - 5));
+    });
+    const auto bars = dds(256, 128, [](int x, int y, uint8_t* p) {
+        const bool one = y < 41, two = y >= 43 && y < 84;
+        if (!one && !two) return;
+        p[0] = one ? 230 : 160; p[1] = one ? 150 : 80; p[2] = one ? 20 : 10; p[3] = 255;
+    });
+    return {{"mainmenu_button_maru.dds", disc(kArtBlue)}, {"mainmenu_button_maru_i.dds", disc(kArtHeld)},
+            {"mainmenu_csol.dds", arc}, {"mainmenu_button_sikaku.dds", bars}};
+}
+static void write_file(const std::filesystem::path& p, const std::vector<uint8_t>& b) {
+    std::filesystem::create_directories(p.parent_path());
+    std::ofstream f(p, std::ios::binary | std::ios::trunc);
+    f.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+}
+
 int main(int argc, char** argv) {
     const std::string out = argc > 1 ? argv[1] : "";
+    const std::string real_install = argc > 2 ? argv[2] : "";
     // ---------------------------------------------------------------- the pad
     sa2_touch::Overlay* o = sa2_touch::create(nullptr, nullptr);
     CHECK(!sa2_touch::active(o), "fresh overlay active");
@@ -263,19 +358,19 @@ int main(int argc, char** argv) {
         CHECK(!parse("SA2_TOUCH_SIZE", "1"), "an unknown name taken");
         // The style, its theme and the face buttons: exact lower-case names, a bad one refused with
         // why and the setting unchanged.
-        CHECK(s.style == Style::Classic && s.theme == Theme::Sonic && !s.two_buttons, "not classic by default");
+        CHECK(s.style == Style::Classic && s.auto_theme && s.theme == Theme::Sonic && !s.two_buttons,
+              "not classic and auto by default");
         CHECK(parse("SA2_TOUCH_STYLE", "adventure") && s.style == Style::Adventure && why.empty(), "style: %s",
               why.c_str());
         for (const char* bad : {"", "Adventure", "modern", "adventure ", "1"})
             CHECK(!parse("SA2_TOUCH_STYLE", bad) && s.style == Style::Adventure && why == "not classic or adventure",
                   "style \"%s\" taken (%s)", bad, why.c_str());
         CHECK(parse("SA2_TOUCH_STYLE", "classic") && s.style == Style::Classic, "style classic: %s", why.c_str());
-        CHECK(parse("SA2_TOUCH_THEME", "knuckles") && s.theme == Theme::Knuckles && why.empty(), "theme: %s",
-              why.c_str());
-        CHECK(parse("SA2_TOUCH_THEME", "auto") && s.theme == Theme::Sonic &&
-              why.find("not known to the player yet") != std::string::npos, "theme auto: %s", why.c_str());
-        CHECK(parse("SA2_TOUCH_THEME", "metal") && s.theme == Theme::Metal && why.empty(), "theme metal: %s",
-              why.c_str());
+        CHECK(parse("SA2_TOUCH_THEME", "knuckles") && s.theme == Theme::Knuckles && !s.auto_theme && why.empty(),
+              "theme: %s", why.c_str());
+        CHECK(parse("SA2_TOUCH_THEME", "auto") && s.auto_theme && why.empty(), "theme auto: %s", why.c_str());
+        CHECK(parse("SA2_TOUCH_THEME", "metal") && s.theme == Theme::Metal && !s.auto_theme && why.empty(),
+              "theme metal: %s", why.c_str());
         for (const char* bad : {"", "Sonic", "blue", "auto,", "knuckles;", "silver"})
             CHECK(!parse("SA2_TOUCH_THEME", bad) && s.theme == Theme::Metal && why.find("not one of") == 0,
                   "theme \"%s\" taken (%s)", bad, why.c_str());
@@ -466,6 +561,205 @@ int main(int argc, char** argv) {
     }
     std::printf("settings and the band: %s\n", fails ? "FAILED" : "ok");
 
+    // ---------------------------------------------------------------- the game's state
+    {
+        using sa2_touch::Context;
+        sa2_touch::GameState g;
+        CHECK(sa2_touch::parse_state_note("state mode=5 level=13 character=4 two=0 alt=0", &g) && g.mode == 5 &&
+              g.level == 13 && g.character == 4 && g.two_player == 0 && g.alt == 0, "a state note");
+        CHECK(sa2_touch::parse_state_note("state mode=13", &g) && g.mode == 13 && g.level == -1 && g.character == -1,
+              "a short state note");
+        CHECK(sa2_touch::parse_state_note("state mode=-1 level=-1 character=-1 two=-1 alt=-1 later=7", &g) &&
+              g.mode == -1, "unread fields and a field to come");
+        for (const char* bad : {"", "record 4: blob: the 4 bytes did not read", "state mode=x", "state mode=",
+                                "states mode=5", "state mode=5 level=1.5"})
+            CHECK(!sa2_touch::parse_state_note(bad, &g), "\"%s\" is a state note", bad);
+        // GameMode to context: every row of the table, a load keeping the context before, Chao
+        // World a stage at level 90, and no mode unknown.
+        const std::pair<int, Context> modes[] = {
+            {0, Context::Menu},      {1, Context::Menu},      {2, Context::Menu},     {13, Context::Menu},
+            {14, Context::Menu},     {25, Context::Menu},     {5, Context::Stage},    {10, Context::Stage},
+            {7, Context::Cutscene},  {8, Context::Cutscene},  {15, Context::Cutscene}, {16, Context::Cutscene},
+            {21, Context::Cutscene}, {22, Context::Cutscene}, {17, Context::Menu},    {18, Context::Menu},
+            {19, Context::Menu},     {20, Context::Menu},     {23, Context::Menu},    {24, Context::Menu}};
+        for (const auto& [mode, want] : modes) {
+            sa2_touch::GameState st;
+            st.mode = mode;
+            st.level = 13;
+            CHECK(sa2_touch::context_of(st, Context::Unknown) == want, "mode %d is %s", mode,
+                  sa2_touch::context_name(sa2_touch::context_of(st, Context::Unknown)));
+        }
+        for (int mode : {3, 4, 6, 9, 11, 12, 26, 1000}) {
+            sa2_touch::GameState st;
+            st.mode = mode;
+            CHECK(sa2_touch::context_of(st, Context::Cutscene) == Context::Cutscene &&
+                  sa2_touch::context_of(st, Context::Stage) == Context::Stage, "mode %d does not keep the context", mode);
+        }
+        sa2_touch::GameState chao;
+        chao.mode = 5;
+        chao.level = 90;
+        CHECK(sa2_touch::context_of(chao, Context::Menu) == Context::ChaoWorld, "level 90 is not chao world");
+        chao.mode = 13;
+        CHECK(sa2_touch::context_of(chao, Context::Stage) == Context::Menu, "the menus at level 90");
+        CHECK(sa2_touch::context_of(sa2_touch::GameState{}, Context::Stage) == Context::Unknown, "no mode read");
+        // The character's theme in a stage or Chao World (the costume's in a two-player game), sonic's elsewhere.
+        const std::pair<int, Theme> own[] = {{0, Theme::Sonic},  {1, Theme::Shadow},   {2, Theme::Tails},
+                                             {3, Theme::Eggman}, {4, Theme::Knuckles}, {5, Theme::Rouge},
+                                             {6, Theme::Tails},  {7, Theme::Eggman}};
+        for (const auto& [ch, want] : own) {
+            sa2_touch::GameState st;
+            st.mode = 5;
+            st.character = ch;
+            st.two_player = 0;
+            st.alt = 1;                      // a costume byte left set outside a two-player game
+            CHECK(sa2_touch::theme_of(st, Context::Stage) == want && sa2_touch::theme_of(st, Context::ChaoWorld) == want,
+                  "character %d is %s", ch, sa2_touch::theme_name(sa2_touch::theme_of(st, Context::Stage)));
+            CHECK(sa2_touch::theme_of(st, Context::Menu) == Theme::Sonic &&
+                  sa2_touch::theme_of(st, Context::Cutscene) == Theme::Sonic &&
+                  sa2_touch::theme_of(st, Context::Unknown) == Theme::Sonic, "character %d outside a stage", ch);
+        }
+        const std::pair<int, Theme> costume[] = {{0, Theme::Amy}, {1, Theme::Metal}, {4, Theme::Tails},
+                                                 {5, Theme::Chao}, {6, Theme::Chao}, {7, Theme::Chao}};
+        for (const auto& [ch, want] : costume) {
+            sa2_touch::GameState st;
+            st.character = ch;
+            st.two_player = 1;
+            st.alt = 1;
+            CHECK(sa2_touch::theme_of(st, Context::Stage) == want, "character %d's costume is %s", ch,
+                  sa2_touch::theme_name(sa2_touch::theme_of(st, Context::Stage)));
+        }
+        sa2_touch::GameState nobody;
+        nobody.character = 12;
+        CHECK(sa2_touch::theme_of(nobody, Context::Stage) == Theme::Sonic, "an unknown character");
+        // The table of what each context uses.
+        CHECK(sa2_touch::context_uses(Context::Stage, 0x1000, 0) && sa2_touch::context_uses(Context::Stage, 0x2000, 0) &&
+              sa2_touch::context_uses(Context::Stage, 0x0010, 0) && !sa2_touch::context_uses(Context::Stage, 0x4000, 0) &&
+              !sa2_touch::context_uses(Context::Stage, 0x8000, 0) && sa2_touch::context_uses(Context::Stage, 0, 1) &&
+              sa2_touch::context_uses(Context::Stage, 0, 2) && sa2_touch::context_uses_stick(Context::Stage), "stage");
+        // The action-buttons tweak puts Y (its light dash) in a stage, and nothing else anywhere.
+        CHECK(sa2_touch::context_uses(Context::Stage, 0x8000, 0, true) &&
+              !sa2_touch::context_uses(Context::Stage, 0x4000, 0, true) &&
+              !sa2_touch::context_uses(Context::Cutscene, 0x8000, 0, true) &&
+              !sa2_touch::context_uses(Context::Menu, 0x4000, 0, true), "the action-buttons tweak's Y");
+        CHECK(sa2_touch::context_uses(Context::Menu, 0x1000, 0) && sa2_touch::context_uses(Context::Menu, 0x2000, 0) &&
+              sa2_touch::context_uses(Context::Menu, 0x0010, 0) && !sa2_touch::context_uses(Context::Menu, 0x4000, 0) &&
+              sa2_touch::context_uses(Context::Menu, 0x8000, 0) &&   // Y: Stage Select's character picker
+              !sa2_touch::context_uses(Context::Menu, 0, 1) && !sa2_touch::context_uses(Context::Menu, 0, 2) &&
+              sa2_touch::context_uses_stick(Context::Menu), "menu");
+        CHECK(!sa2_touch::context_uses(Context::Cutscene, 0x1000, 0) && sa2_touch::context_uses(Context::Cutscene, 0x0010, 0) &&
+              !sa2_touch::context_uses(Context::Cutscene, 0, 1) && !sa2_touch::context_uses_stick(Context::Cutscene),
+              "cutscene");
+        for (uint16_t bit : {0x1000, 0x2000, 0x4000, 0x8000, 0x0010})
+            CHECK(sa2_touch::context_uses(Context::ChaoWorld, bit, 0) && sa2_touch::context_uses(Context::Unknown, bit, 0),
+                  "chao world or unknown without %04x", bit);
+        CHECK(sa2_touch::context_uses(Context::Unknown, 0, 1) && sa2_touch::context_uses_stick(Context::Unknown) &&
+              sa2_touch::context_uses(Context::ChaoWorld, 0, 2), "unknown or chao world without a trigger");
+
+        // On the overlay: the adventure style shows what the context uses, and nothing else is hit.
+        sa2_touch::Overlay* q = sa2_touch::create(nullptr, nullptr);
+        sa2_touch::Settings s;
+        std::string why;
+        sa2_touch::parse_setting("SA2_TOUCH_STYLE", "adventure", &s, &why);
+        sa2_touch::set_settings(q, s);
+        float xx, xy;
+        at(Control::X, &xx, &xy);
+        const auto shown = [&](std::initializer_list<Control> want) {
+            std::string got;
+            for (Control c : {Control::Stick, Control::A, Control::B, Control::X, Control::Y, Control::Start, Control::LT,
+                              Control::RT})
+                if (sa2_touch::control_shown(q, c)) got += std::to_string(int(c));
+            std::string w;
+            for (Control c : want) w += std::to_string(int(c));
+            return got == w;
+        };
+        CHECK(sa2_touch::context(q) == Context::Unknown && sa2_touch::theme(q) == Theme::Sonic &&
+              shown({Control::Stick, Control::A, Control::B, Control::X, Control::Y, Control::Start, Control::LT,
+                     Control::RT}), "before any state: everything, sonic");
+        sa2_touch::GameState st;
+        st.mode = 5; st.level = 13; st.character = 4; st.two_player = 0; st.alt = 0;
+        sa2_touch::set_game_state(q, st);
+        CHECK(sa2_touch::context(q) == Context::Stage && sa2_touch::theme(q) == Theme::Knuckles &&
+              shown({Control::Stick, Control::A, Control::B, Control::Start, Control::LT, Control::RT}),
+              "a stage as knuckles: %s %s", sa2_touch::context_name(sa2_touch::context(q)),
+              sa2_touch::theme_name(sa2_touch::theme(q)));
+        // X is not in a stage: a finger there sends nothing (and is no stick: it is on the right).
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 1, xx, xy));
+        CHECK(pad_of(q).connected && pad_of(q).buttons == 0, "hidden X sends %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 1, xx, xy));
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 2, ltx, lty));
+        CHECK(pad_of(q).lt == 255, "LT in a stage");
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 2, ltx, lty));
+        // Y is not in a stage either, unless the action-buttons tweak is on: then it is, and sends Y.
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 9, yx, yy));
+        CHECK(pad_of(q).buttons == 0, "hidden Y in a stage sends %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 9, yx, yy));
+        sa2_touch::set_action_buttons(q, true);
+        CHECK(shown({Control::Stick, Control::A, Control::B, Control::Y, Control::Start, Control::LT, Control::RT}),
+              "a stage with action-buttons");
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 9, yx, yy));
+        CHECK(pad_of(q).buttons == 0x8000, "Y with action-buttons sends %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 9, yx, yy));
+        sa2_touch::set_action_buttons(q, false);
+        CHECK(!sa2_touch::control_shown(q, Control::Y), "Y stayed after action-buttons went off");
+        // A held when a cutscene starts: it sends nothing from then on; START alone is there, and
+        // a finger on the stick's half is no stick.
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 3, ax, ay));
+        CHECK(pad_of(q).buttons == 0x1000, "A in a stage: %04x", pad_of(q).buttons);
+        st.mode = 8;
+        sa2_touch::set_game_state(q, st);
+        CHECK(sa2_touch::context(q) == Context::Cutscene && sa2_touch::theme(q) == Theme::Sonic && shown({Control::Start}),
+              "a cutscene");
+        CHECK(pad_of(q).buttons == 0, "A held into a cutscene still sends %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 4, sx, sy));
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_MOTION, 4, sx + R / W, sy));
+        CHECK(pad_of(q).lx == 0 && pad_of(q).buttons == 0, "a stick in a cutscene: %d", pad_of(q).lx);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 5, stx, sty));
+        CHECK(pad_of(q).buttons == 0x0010, "START in a cutscene: %04x", pad_of(q).buttons);
+        for (SDL_FingerID id : {3, 4, 5}) sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, id, 0, 0));
+        // A load (mode 4) keeps the cutscene; the menus have no triggers and no X or Y.
+        st.mode = 4;
+        sa2_touch::set_game_state(q, st);
+        CHECK(sa2_touch::context(q) == Context::Cutscene, "a load changed the context");
+        st.mode = 13;
+        sa2_touch::set_game_state(q, st);
+        CHECK(sa2_touch::context(q) == Context::Menu && sa2_touch::theme(q) == Theme::Sonic &&
+              shown({Control::Stick, Control::A, Control::B, Control::Y, Control::Start}), "the menus");
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 9, yx, yy));
+        CHECK(pad_of(q).buttons == 0x8000, "Y in the menus sends %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 9, yx, yy));
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 6, rtx, rty));
+        CHECK(pad_of(q).rt == 0, "RT in the menus");
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 6, 0, 0));
+        st.mode = 5; st.level = 90; st.character = 1;
+        sa2_touch::set_game_state(q, st);
+        CHECK(sa2_touch::context(q) == Context::ChaoWorld && sa2_touch::theme(q) == Theme::Shadow &&
+              shown({Control::Stick, Control::A, Control::B, Control::X, Control::Y, Control::Start, Control::LT,
+                     Control::RT}), "chao world as shadow");
+        // A button is shown by what it sends: X mapped to B is there in a stage; with two face
+        // buttons X and Y never are.
+        st.level = 13;
+        sa2_touch::set_game_state(q, st);
+        sa2_touch::parse_setting("SA2_TOUCH_MAP", "X=B", &s, &why);
+        sa2_touch::set_settings(q, s);
+        CHECK(sa2_touch::control_shown(q, Control::X) && !sa2_touch::control_shown(q, Control::Y), "X mapped to B");
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 7, xx, xy));
+        CHECK(pad_of(q).buttons == 0x2000, "X mapped to B in a stage sends %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 7, 0, 0));
+        // An explicit theme stays whatever the character; the classic style shows everything.
+        sa2_touch::parse_setting("SA2_TOUCH_THEME", "rouge", &s, &why);
+        sa2_touch::set_settings(q, s);
+        CHECK(sa2_touch::theme(q) == Theme::Rouge, "an explicit theme followed the character");
+        st.mode = 7;
+        sa2_touch::set_game_state(q, st);
+        sa2_touch::set_settings(q, sa2_touch::Settings{});
+        CHECK(shown({Control::Stick, Control::A, Control::B, Control::X, Control::Y, Control::Start, Control::LT,
+                     Control::RT}), "the classic style hid a control");
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 8, ax, ay));
+        CHECK(pad_of(q).buttons == 0x1000, "classic A in a cutscene: %04x", pad_of(q).buttons);
+        sa2_touch::destroy(q);
+    }
+    std::printf("the game's state: %s\n", fails ? "FAILED" : "ok");
+
     // ---------------------------------------------------------------- drawing
     if (!SDL_Init(SDL_INIT_VIDEO)) { std::printf("FAIL SDL_Init: %s\n", SDL_GetError()); return 1; }
     Gpu g;
@@ -630,6 +924,142 @@ int main(int argc, char** argv) {
         sa2_touch::set_settings(o, sa2_touch::Settings{});
         sa2_touch::deactivate(o);
     }
+    // The game's art, from a PAK of this test's own drawing (no game file). Refused with a reason
+    // when it is not there or not right, and the shader's look drawn then, pixel for pixel.
+    {
+        namespace fs = std::filesystem;
+        const fs::path root = fs::temp_directory_path() / ("sa2-touch-art-" + std::to_string(SDL_GetCurrentThreadID()));
+        fs::remove_all(root);
+        const fs::path pak_path = root / "resource" / "gd_PC" / "PRS" / "newMenu.pak";
+        sa2_touch::Settings s;
+        std::string why;
+        sa2_touch::parse_setting("SA2_TOUCH_STYLE", "adventure", &s, &why);
+        sa2_touch::set_settings(o, s);
+        sa2_touch::handle_event(o, finger(SDL_EVENT_FINGER_DOWN, 1, ax, ay));
+        sa2_touch::handle_event(o, finger(SDL_EVENT_FINGER_DOWN, 2, sx, sy));
+        CHECK(frame(&g, o, &px), "frame: %s", SDL_GetError());
+        const std::vector<uint8_t> shader_look = px;
+        CHECK(!sa2_touch::load_art(o, "", &why) && why.find("SA2_TOUCH_ART_ROOT") != std::string::npos, "no root: %s",
+              why.c_str());
+        CHECK(!sa2_touch::load_art(o, root.string(), &why) && why.find("no resource/gd_PC/PRS/newMenu.pak") == 0,
+              "no PAK: %s", why.c_str());
+        write_file(pak_path, {1, 'z', 'i', 'p', 0, 0});
+        CHECK(!sa2_touch::load_art(o, root.string(), &why) && why.find("not a PAK") != std::string::npos, "junk: %s",
+              why.c_str());
+        auto members = test_members();
+        auto three = members;
+        three.pop_back();
+        write_file(pak_path, pak(three));
+        CHECK(!sa2_touch::load_art(o, root.string(), &why) && why.find("has no mainmenu_button_sikaku.dds") !=
+              std::string::npos, "a member short: %s", why.c_str());
+        auto small = members;
+        small[0].second = dds(64, 64, [](int, int, uint8_t* p) { p[3] = 255; });
+        write_file(pak_path, pak(small));
+        CHECK(!sa2_touch::load_art(o, root.string(), &why) && why.find("is 64x64, not 128x128") != std::string::npos,
+              "a member's size: %s", why.c_str());
+        auto cut = pak(members);
+        cut.resize(cut.size() - 100);
+        write_file(pak_path, cut);
+        CHECK(!sa2_touch::load_art(o, root.string(), &why) && why.find("runs past its end") != std::string::npos,
+              "a cut PAK: %s", why.c_str());
+        CHECK(!sa2_touch::art_loaded(o), "art loaded from a bad PAK");
+        CHECK(frame(&g, o, &px) && px == shader_look, "a refused PAK changed the shader's look");
+        // The good one, under a root whose folders' case differs from the game's (an install copied
+        // from Windows): found, and drawn instead of the shader's look.
+        const fs::path upper = root / "RESOURCE" / "GD_PC" / "prs" / "NEWMENU.PAK";
+        fs::remove_all(root);
+        write_file(upper, pak(members));
+        CHECK(sa2_touch::load_art(o, root.string(), &why) && why.empty() && sa2_touch::art_loaded(o), "load: %s",
+              why.c_str());
+        CHECK(frame(&g, o, &px), "frame: %s", SDL_GetError());
+        CHECK(px != shader_look && sa2_touch::stats(o).error.empty(), "the art was not drawn: %s",
+              sa2_touch::stats(o).error.c_str());
+        save_png(out, "overlay-art.png", px, W, H);
+        const auto face = [&](Control c) {
+            float fx, fy;
+            sa2_touch::control_centre(o, W, H, c, &fx, &fy);
+            return patch(px, W, fx, fy, 6);
+        };
+        // Sonic's colours are the art's own: B the test's blue (B,G,R 230,90,30 at 0.8 over black,
+        // its stripes averaged in); A, held, the held disc's darker blue, at full opacity.
+        const Bgr b_idle = face(Control::B), a_held = face(Control::A);
+        std::printf("art: B %d,%d,%d  A held %d,%d,%d\n", b_idle.b, b_idle.g, b_idle.r, a_held.b, a_held.g, a_held.r);
+        CHECK(std::abs(b_idle.b - 170) < 20 && std::abs(b_idle.g - 66) < 12 && b_idle.r < 35, "B is not the art's blue");
+        CHECK(std::abs(a_held.b - 130) < 20 && a_held.g < 50 && a_held.r < 25, "A held is not the held disc");
+        // START, LT and RT are the bars; START's mark is white over its middle.
+        float tx, ty;
+        sa2_touch::control_centre(o, W, H, Control::LT, &tx, &ty);
+        const Bgr lt_bar = pixel(px, W, tx - 0.07f * H, ty + 0.03f * H);   // off the mark, inside the bar
+        CHECK(lt_bar.b > 140 && lt_bar.g > 90 && lt_bar.r < 40, "LT is not the bar: %d,%d,%d", lt_bar.b, lt_bar.g, lt_bar.r);
+        // The stick's base: the red arc turned to the button's blue, its middle line on the radius,
+        // four ways round; the knob the button.
+        for (const auto& [dx, dy] : {std::make_pair(-1.0f, 0.0f), std::make_pair(1.0f, 0.0f), std::make_pair(0.0f, -1.0f),
+                                     std::make_pair(0.0f, 1.0f), std::make_pair(-0.7071f, -0.7071f)}) {
+            const Bgr ring = pixel(px, W, sx * W + dx * (R + 4.5f), sy * H + dy * (R + 4.5f));   // beside the white line
+            CHECK(ring.b > 100 && ring.b > ring.r + 60, "the ring at %.1f,%.1f is %d,%d,%d, not blue", dx, dy, ring.b,
+                  ring.g, ring.r);
+        }
+        const Bgr knob = patch(px, W, sx * W, sy * H, 4);
+        CHECK(knob.b > 100 && knob.r < 40, "the knob %d,%d,%d", knob.b, knob.g, knob.r);
+        // Knuckles: the same art turned red, striped as before.
+        sa2_touch::parse_setting("SA2_TOUCH_THEME", "knuckles", &s, &why);
+        sa2_touch::set_settings(o, s);
+        CHECK(frame(&g, o, &px), "frame: %s", SDL_GetError());
+        save_png(out, "overlay-art-knuckles.png", px, W, H);
+        const Bgr kb = face(Control::B);
+        CHECK(kb.r > 140 && kb.g < 50 && kb.b < 40, "B is not knuckles' red: %d,%d,%d", kb.b, kb.g, kb.r);
+        const Bgr kring = pixel(px, W, sx * W - (R + 4.5f), sy * H);
+        CHECK(kring.r > 100 && kring.r > kring.b + 60, "knuckles' ring %d,%d,%d", kring.b, kring.g, kring.r);
+        // Auto in a cutscene: START's bar alone, and sonic's blue.
+        sa2_touch::parse_setting("SA2_TOUCH_THEME", "auto", &s, &why);
+        sa2_touch::set_settings(o, s);
+        sa2_touch::GameState st;
+        st.mode = 8;
+        sa2_touch::set_game_state(o, st);
+        CHECK(frame(&g, o, &px), "frame: %s", SDL_GetError());
+        float qx, qy;
+        sa2_touch::control_centre(o, W, H, Control::Start, &qx, &qy);
+        const Bgr start = pixel(px, W, qx - 0.06f * H, qy);
+        CHECK(start.b > 140 && start.r < 40, "START in a cutscene %d,%d,%d", start.b, start.g, start.r);
+        uint64_t elsewhere = 0;
+        for (uint32_t y = 0; y < H; ++y)
+            for (uint32_t x = 0; x < W; ++x) {
+                const size_t i = (size_t(y) * W + x) * 4;
+                if ((px[i] | px[i + 1] | px[i + 2]) && (std::fabs(float(x) - qx) > 0.1f * H || std::fabs(float(y) - qy) > 0.05f * H))
+                    ++elsewhere;
+            }
+        CHECK(elsewhere == 0, "%llu pixels drawn away from START in a cutscene", (unsigned long long)elsewhere);
+        // A stage as Tails: X, Y gone; the theme orange.
+        st.mode = 5; st.level = 13; st.character = 2; st.two_player = 0; st.alt = 0;
+        sa2_touch::set_game_state(o, st);
+        CHECK(frame(&g, o, &px), "frame: %s", SDL_GetError());
+        const Bgr tb = face(Control::B), tx_ = face(Control::X);
+        CHECK(tb.r > 150 && tb.g > 80 && tb.b < 50 && tx_.r + tx_.g + tx_.b == 0, "tails' B %d,%d,%d, X %d,%d,%d", tb.b,
+              tb.g, tb.r, tx_.b, tx_.g, tx_.r);
+        sa2_touch::set_game_state(o, sa2_touch::GameState{});
+        // The real game's, when this machine has an install: it parses and draws (its pictures go
+        // only to OUT_DIR, never a tracked file).
+        if (!real_install.empty()) {
+            const bool ok = sa2_touch::load_art(o, real_install, &why);
+            CHECK(ok, "the install's newMenu.pak: %s", why.c_str());
+            std::printf("real art: %s\n", ok ? "loaded" : why.c_str());
+            for (const char* t : {"sonic", "knuckles"}) {
+                sa2_touch::parse_setting("SA2_TOUCH_THEME", t, &s, &why);
+                sa2_touch::set_settings(o, s);
+                CHECK(frame(&g, o, &px), "frame: %s", SDL_GetError());
+                const Bgr rb = face(Control::B);
+                std::printf("real art %s: B %d,%d,%d\n", t, rb.b, rb.g, rb.r);
+                if (t[0] == 's') CHECK(rb.b > rb.r + 40, "the real button is not blue: %d,%d,%d", rb.b, rb.g, rb.r);
+                else CHECK(rb.r > rb.b + 40, "the real button is not turned red: %d,%d,%d", rb.b, rb.g, rb.r);
+                save_png(out, std::string("overlay-real-") + t + ".png", px, W, H);
+            }
+        }
+        fs::remove_all(root);
+        // Without art again (a new overlay): the shader's look.
+        sa2_touch::set_settings(o, sa2_touch::Settings{});
+        sa2_touch::deactivate(o);
+        CHECK(sa2_touch::stats(o).draw_failures == 0, "draw failures with the art: %s", sa2_touch::stats(o).error.c_str());
+    }
     // Below a portrait window's 4:3 picture (rows 510 to 1050 of 720x1560): every control in the
     // band, none over the picture.
     {
@@ -703,6 +1133,7 @@ int main(int argc, char** argv) {
     release_target(&g);
     SDL_DestroyGPUDevice(g.dev);
     SDL_Quit();
+    fails += fails_png;
     if (fails) { std::printf("%d checks failed\n", fails); return 1; }
     std::printf("TOUCH_OVERLAY_OK\n");
     return 0;

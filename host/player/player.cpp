@@ -105,7 +105,9 @@
 //      a FRAME with no Present or a Present with no FRAME, virtual time running
 //      backwards (in a version 2 stream, across FRAME and AUDIO records), an
 //      AUDIO record whose op or argc the header's audio table does not give, any
-//      NOTE record (the writer left something out; unless --allow-notes)
+//      NOTE record (the writer left something out; unless --allow-notes) but a
+//      state note (host/sa2_stream.h: the game's state, for the touch overlay,
+//      counted as "records" "state", a field only a stream with one has)
 //   4  the replay: device creation failed, no Present replayed, an error the
 //      player counted (among them a GetRenderTarget, GetDepthStencilSurface or
 //      GetBackBuffer answer the bindings the player followed do not give), a
@@ -201,8 +203,11 @@
 // portrait window's picture). The overlay's settings (SA2_TOUCH_SCALE, SA2_TOUCH_OPACITY,
 // SA2_TOUCH_LAYOUT, SA2_TOUCH_LAYOUT_PORTRAIT, SA2_TOUCH_MAP, SA2_TOUCH_STYLE, SA2_TOUCH_THEME,
 // SA2_TOUCH_FACE: touch_overlay.h) and SA2_PAD_MAP are read from the environment when the pads are
-// set up, each said in the log ("pads: ..."), a malformed one with why it is not used and one taken
-// with a remark (SA2_TOUCH_THEME=auto) with that remark. SA2_PAD_MAP=BUTTON=OUTPUT,... changes what a physical
+// set up, each said in the log ("pads: ..."), a malformed one with why it is not used. In the
+// adventure style the overlay loads the game's menu art from SA2_TOUCH_ART_ROOT (the install, set
+// by the launcher and the Android session; the log says whether it did, or why not), and each
+// state note in the stream (the game's context and character) goes to it, a line in the log when
+// the context or the colours change ("touch: ..."). SA2_PAD_MAP=BUTTON=OUTPUT,... changes what a physical
 // pad's button sends: BUTTON an SDL button by position (SOUTH EAST WEST NORTH BACK GUIDE START LS
 // RS LB RB UP DOWN LEFT RIGHT MISC1 PADDLE1-4 TOUCHPAD), OUTPUT a game button (input.h
 // pad_output_named; LT and RT hold that trigger all the way). The report's "host_pads" counts
@@ -1201,6 +1206,7 @@ private:
     struct PadSlot;
     struct PadChoice;
     void setup_pads();
+    void apply_game_state();
     void service_pads();
     void pad_event(const SDL_Event& e);
     void open_pad(SDL_JoystickID id);
@@ -1347,6 +1353,11 @@ private:
     std::string picture_said_;                     // the last "picture:" line, said once per change
     sa2_touch::Overlay* touch_ = nullptr;
     sa2_touch::Stats touch_final_;                 // the overlay's counts, kept when it is destroyed
+    // The game's state from the stream's state notes (host/sa2_stream.h), for the overlay: the
+    // last, kept for an overlay made after it came; and the last context and theme said.
+    sa2_touch::GameState game_state_;
+    uint64_t state_notes_ = 0;
+    std::string touch_state_said_;
     bool pads_up_ = false, pads_closed_ = false, pads_dirty_ = false, touch_platform_ = false;
     bool gamepads_up_ = false;
     uint64_t pads_added_ = 0, pads_removed_ = 0, pads_unslotted_ = 0, pads_not_virtual_ = 0;
@@ -4567,6 +4578,22 @@ void Player::setup_pads() {
         else std::printf("pads: %s=%s not used: it is %sID:vvvv:pppp or NAME:<device name>\n", env, v, k ? "" : "ALL, ");
     }
     sa2_touch::set_settings(touch_, touch_settings);
+    // The adventure style's art: the game's own, from the install the session's game reads
+    // (SA2_TOUCH_ART_ROOT, set by the launcher and the Android session), or the overlay's shapes.
+    if (touch_settings.style == sa2_touch::Style::Adventure) {
+        const char* root = getenv("SA2_TOUCH_ART_ROOT");
+        std::string why;
+        if (sa2_touch::load_art(touch_, root ? root : "", &why))
+            std::printf("pads: the touch controls draw the game's menu art (resource/gd_PC/PRS/newMenu.pak)\n");
+        else
+            std::printf("pads: the touch controls draw their own shapes, not the game's art: %s\n", why.c_str());
+    }
+    // The action-buttons tweak makes Y the light dash: a stage's touch controls show Y then.
+    if (sa2tw::named("action-buttons")) {
+        sa2_touch::set_action_buttons(touch_, true);
+        std::printf("pads: action-buttons is on, so the adventure style shows Y in a stage (the light dash)\n");
+    }
+    if (state_notes_) apply_game_state();
     sa2_frametime::setup(SA2_PLAYER_GPU != 0, o_.pace && host());   // host tweak frametime-overlay
     const SDL_PropertiesID props = SDL_GetWindowProperties(win_);
     if (!props || !SDL_SetPointerProperty(props, kPresentOverlayContext, this) ||
@@ -4963,6 +4990,19 @@ void Player::push_due_synthetic_input() {
                                    in.verb.c_str(), SDL_GetError());
         }
     }
+}
+
+// The last state note's game state to the overlay; a line when the context or the theme it
+// gives changes.
+void Player::apply_game_state() {
+    if (!touch_) return;
+    sa2_touch::set_game_state(touch_, game_state_);
+    const std::string said = strf("touch: %s, %s's colours", sa2_touch::context_name(sa2_touch::context(touch_)),
+                                  sa2_touch::theme_name(sa2_touch::theme(touch_)));
+    if (said == touch_state_said_) return;
+    touch_state_said_ = said;
+    std::printf("%s (state mode=%d level=%d character=%d two=%d alt=%d)\n", said.c_str(), int(game_state_.mode),
+                int(game_state_.level), int(game_state_.character), int(game_state_.two_player), int(game_state_.alt));
 }
 
 // The second host's device at Present, between its blit of the frame to the swapchain texture
@@ -5419,7 +5459,12 @@ int Player::run() {
             stream_problem(strf("record seq %u where seq %u was due", r.seq, expect_seq_));
         }
         expect_seq_ = r.seq + 1;
-        if (r.kind < 8) kinds_[r.kind]++; else unknown_kinds_++;
+        // A state note is the game's state, not something left out: counted apart, never failed.
+        sa2_touch::GameState state;
+        const bool state_note = r.kind == SA2S_NOTE && sa2_touch::parse_state_note(r.note, &state);
+        if (state_note) state_notes_++;
+        else if (r.kind < 8) kinds_[r.kind]++;
+        else unknown_kinds_++;
         check_record(r);
         if (r.kind == SA2S_END) end_records_++;
         // Only a call, a d3dx record or END closes a pending Present: the
@@ -5436,6 +5481,11 @@ int Player::run() {
             else stream_problem(strf("FRAME seq %u follows no Present", r.seq));
             break;
         case SA2S_NOTE:
+            if (state_note) {
+                game_state_ = state;
+                apply_game_state();
+                break;
+            }
             notes_++;
             if (first_notes_.size() < 20) first_notes_.push_back(r.note);
             break;
@@ -5842,11 +5892,14 @@ bool Player::write_report(bool complete) {
         s += "  \"stats_only_leaves_out\": [\"device creation: the window, DXVK and CreateDevice\", "
              "\"host answers: a host call that fails, and the objects a failed one leaves unmade\", "
              "\"readbacks and pixels\"],\n";
+    // "state" only for a stream with state notes (live play's), so every other report's records
+    // are the fields they always were.
     s += strf("  \"records\": {\"call\": %" PRIu64 ", \"d3dx\": %" PRIu64 ", \"frame\": %" PRIu64 ", \"note\": %" PRIu64
-              ", \"end\": %" PRIu64 ", \"unknown\": %" PRIu64 ", \"seq_gaps\": %" PRIu64 ", \"after_end\": %" PRIu64 "%s},\n",
+              ", \"end\": %" PRIu64 ", \"unknown\": %" PRIu64 ", \"seq_gaps\": %" PRIu64 ", \"after_end\": %" PRIu64 "%s%s},\n",
               kinds_[SA2S_CALL], kinds_[SA2S_D3DX], kinds_[SA2S_FRAME], kinds_[SA2S_NOTE], kinds_[SA2S_END],
               unknown_kinds_, seq_gaps_, after_end_,
-              rd_.version() == SA2S_VERSION_AUDIO ? strf(", \"audio\": %" PRIu64, kinds_[SA2S_AUDIO]).c_str() : "");
+              rd_.version() == SA2S_VERSION_AUDIO ? strf(", \"audio\": %" PRIu64, kinds_[SA2S_AUDIO]).c_str() : "",
+              state_notes_ ? strf(", \"state\": %" PRIu64, state_notes_).c_str() : "");
     s += strf("  \"stream_problems\": {\"count\": %" PRIu64 ", \"first\": %s},\n", stream_problems_,
               jlist(first_stream_problems_).c_str());
     s += strf("  \"presents\": %u,\n  \"presents_without_frame_record\": %" PRIu64 ",\n  \"frame_records\": %" PRIu64
@@ -6186,6 +6239,7 @@ int main(int argc, char** argv) {
                                            !o.synthetic_keys.empty() || !o.synthetic_input.empty());
     const sa2tw::Reading tweaks = sa2tw::read(getenv("SA2_TWEAKS"), sa2tw::off(not_play), "player");
     sa2tw::g_on = tweaks.on;
+    sa2tw::g_names = tweaks.names;
     if (!tweaks.line.empty()) std::fprintf(stderr, "%s\n", tweaks.line.c_str());
     sa2tw::tex_filter::start();
     o.vsync = sa2tw::vsync(o.vsync);   // the vsync tweak: --vsync in play (tweaks/vsync.cpp)

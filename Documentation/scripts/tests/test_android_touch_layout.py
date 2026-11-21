@@ -127,8 +127,8 @@ def drivers(tmp_path_factory):
     (d / "native.cpp").write_text(NATIVE)
     here = ROOT / "host/player"
     subprocess.run([GXX, "-std=c++17", "-O1", f"-I{here}", f"-I{INSTALL / 'include'}", "-o", str(d / "native"),
-                    str(d / "native.cpp"), str(here / "touch_overlay.cpp"), f"-L{INSTALL / 'lib'}",
-                    "-Wl,--disable-new-dtags", f"-Wl,-rpath,{INSTALL / 'lib'}", "-lSDL3"],
+                    str(d / "native.cpp"), str(here / "touch_overlay.cpp"), str(here / "texcodec.cpp"),
+                    f"-L{INSTALL / 'lib'}", "-Wl,--disable-new-dtags", f"-Wl,-rpath,{INSTALL / 'lib'}", "-lSDL3", "-lpng"],
                    check=True, capture_output=True)
     src = d / "java/com/sa2recomp/app"
     src.mkdir(parents=True)

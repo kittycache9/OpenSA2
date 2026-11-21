@@ -64,6 +64,9 @@
 //    launcher's play: host/sa2_present_rec.c), and hashes one store in 64 that an Unlock closes
 //    (SA2_REC_STORE_HASH_EVERY=64, the ones the live player holds: player.cpp,
 //    kLiveStoreCheckEvery), not each one, byte by byte over the whole store, on the guest's path.
+//  - The touch controls follow the game: its recorder writes a state note when the game's mode,
+//    level or character changes (SA2_REC_STATE=1, host/sa2_stream.h), and the player reads the
+//    game's menu art from the install (SA2_TOUCH_ART_ROOT, host/player/touch_overlay.h).
 //  - ADPF. Two APerformanceHint sessions (API 33, loaded with dlopen so API 29 still runs), each
 //    with a 16.67 ms target (SA2_ADPF_TARGET_US): the game's threads, from this process (Android
 //    14 accepts another process's threads of the same uid), told the game's CPU time per frame;
@@ -1005,6 +1008,7 @@ int play_game(const Args& a) {
     }
     env_set(genv, "SA2_REC_AUDIO_WATCH", "0");
     env_set(genv, "SA2_REC_STORE_HASH_EVERY", "64");
+    env_set(genv, "SA2_REC_STATE", "1");
     env_set(genv, "SA2_STALL_DUMP_MS", "3000");   // the runtime's stall watch (runtime/sa2_stall.h)
     // Full width (the header): the game's back buffer at the screen's size, unless the screen is no
     // wider than 4:3, where the game's 4:3 layout would be cut at the sides.
@@ -1133,6 +1137,7 @@ int play_game(const Args& a) {
     held_end.hold(end_w);
     player_env(session);
     for (const auto& kv : prof_env) setenv(kv.first.c_str(), kv.second.c_str(), 1);
+    setenv("SA2_TOUCH_ART_ROOT", cfg.read_root.c_str(), 1);   // the game's menu art for the touch controls
     // The tweaks (the header, "Tweaks"): the game's value, game.env.extra's when it has one, for the
     // player's host tweaks too; and the game's replay settings beside it (a game.env.extra line),
     // which turn the game's tweaks off (runtime/sa2_tweaks.c), so the player's off() says the same

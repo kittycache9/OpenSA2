@@ -78,7 +78,13 @@
  *                 never data a player needs, never a substitute for a blob. A note
  *                 about a call follows that call's record (and, for a Present, its
  *                 SA2S_FRAME). Every note says something was not recorded, so a
- *                 stream with any is not one a runner calls ready.
+ *                 stream with any is not one a runner calls ready -- except a state
+ *                 note, text beginning "state " (host/sa2_present_rec.c,
+ *                 SA2_REC_STATE; live play only): the game's state after a FRAME, for
+ *                 the player's touch controls, which leaves nothing out. Readers count
+ *                 state notes apart (host/player/player.cpp's report "records" "state",
+ *                 tools/s5/stream_dump.py's "state_records") and never fail a stream
+ *                 for one; the drawing never depends on them.
  *   SA2S_END      the writer closed cleanly at process exit; no payload, nothing
  *                 follows. A stream without it was cut short (the process died,
  *                 or the writer disabled itself: its `.status` sidecar says why).

@@ -35,10 +35,12 @@
 // matched exactly (case counts), a name given twice is one, an empty one is skipped.
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "../../runtime/sa2_tweaks.h"
 
@@ -68,6 +70,13 @@ inline uint32_t g_on = 0;
 
 inline bool on(Bit b) { return (g_on & b.mask) != 0; }
 
+// Every name the value gives, the game's tweaks' too, as read() splits it: set with g_on (the
+// player's main), empty when the tweaks are off. A host change that follows a game tweak asks
+// named() (the touch overlay: action-buttons puts Y in a stage).
+inline std::vector<std::string> g_names;
+
+inline bool named(const char* name) { return std::find(g_names.begin(), g_names.end(), name) != g_names.end(); }
+
 // The player's flags of synthetic input, the ones its main parses: a session with either is a test
 // run. The launcher looks for them among its --player-arg values (host/launch/windows_play.py).
 inline constexpr const char* kSyntheticFlags[] = {"--synthetic-keys", "--synthetic-input"};
@@ -91,6 +100,7 @@ const char* off(const char* not_play, const GameEnv& game_env = std::getenv);
 struct Reading {
     uint32_t on = 0;     // the mask of that home's tweaks the value turns on
     std::string line;    // the report line; "" when the value is unset or empty
+    std::vector<std::string> names;   // every name the value gives, in its order, once each; none when off
 };
 
 // The reading of `value` for `home`; `why_off` (off()'s answer) non-null turns every tweak off and
