@@ -33,7 +33,8 @@
 // (0x0174B015), -1 for one that did not read. The player hands each to set_game_state, which
 // makes the context (context_of: a menu, a stage, Chao World or a cutscene; unknown until the
 // first note) and, with SA2_TOUCH_THEME=auto, the theme (theme_of: the character's in a stage
-// or Chao World, else sonic's, the menus' own blue). In the adventure style a control whose
+// or Chao World, else sonic's, the menus' own blue; a stage shows Y too when the player says the
+// action-buttons tweak is on, set_action_buttons). In the adventure style a control whose
 // output the context does not use (kContextUses in touch_overlay.cpp) is neither drawn nor hit,
 // and a finger on it sends nothing; an unknown context uses everything. The classic style shows
 // every control whatever the context.
@@ -194,11 +195,15 @@ Context context_of(const GameState& s, Context last);
 // The theme auto picks: the character's (player one's, its costume's in a two-player game) in a
 // stage or Chao World, else sonic's.
 Theme theme_of(const GameState& s, Context c);
-// Whether a context uses an output: an XInput button bit, or a trigger (1 LT, 2 RT); the stick.
-bool context_uses(Context c, uint16_t bit, int trigger);
+// Whether a context uses an output: an XInput button bit, or a trigger (1 LT, 2 RT), with the
+// action-buttons tweak on or not (a stage uses Y with it: the light dash); the stick.
+bool context_uses(Context c, uint16_t bit, int trigger, bool action_buttons = false);
 bool context_uses_stick(Context c);
 // The game's state for the overlay: its context and, with auto, its theme.
 void set_game_state(Overlay* o, const GameState& s);
+// Whether the game's action-buttons tweak is on (the player asks SA2_TWEAKS as its host tweaks
+// do): a stage then shows Y as well.
+void set_action_buttons(Overlay* o, bool on);
 Context context(const Overlay* o);
 Theme theme(const Overlay* o);               // the adventure style's colours now
 

@@ -636,8 +636,14 @@ int main(int argc, char** argv) {
               sa2_touch::context_uses(Context::Stage, 0x0010, 0) && !sa2_touch::context_uses(Context::Stage, 0x4000, 0) &&
               !sa2_touch::context_uses(Context::Stage, 0x8000, 0) && sa2_touch::context_uses(Context::Stage, 0, 1) &&
               sa2_touch::context_uses(Context::Stage, 0, 2) && sa2_touch::context_uses_stick(Context::Stage), "stage");
+        // The action-buttons tweak puts Y (its light dash) in a stage, and nothing else anywhere.
+        CHECK(sa2_touch::context_uses(Context::Stage, 0x8000, 0, true) &&
+              !sa2_touch::context_uses(Context::Stage, 0x4000, 0, true) &&
+              !sa2_touch::context_uses(Context::Cutscene, 0x8000, 0, true) &&
+              !sa2_touch::context_uses(Context::Menu, 0x4000, 0, true), "the action-buttons tweak's Y");
         CHECK(sa2_touch::context_uses(Context::Menu, 0x1000, 0) && sa2_touch::context_uses(Context::Menu, 0x2000, 0) &&
               sa2_touch::context_uses(Context::Menu, 0x0010, 0) && !sa2_touch::context_uses(Context::Menu, 0x4000, 0) &&
+              sa2_touch::context_uses(Context::Menu, 0x8000, 0) &&   // Y: Stage Select's character picker
               !sa2_touch::context_uses(Context::Menu, 0, 1) && !sa2_touch::context_uses(Context::Menu, 0, 2) &&
               sa2_touch::context_uses_stick(Context::Menu), "menu");
         CHECK(!sa2_touch::context_uses(Context::Cutscene, 0x1000, 0) && sa2_touch::context_uses(Context::Cutscene, 0x0010, 0) &&
@@ -683,6 +689,18 @@ int main(int argc, char** argv) {
         sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 2, ltx, lty));
         CHECK(pad_of(q).lt == 255, "LT in a stage");
         sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 2, ltx, lty));
+        // Y is not in a stage either, unless the action-buttons tweak is on: then it is, and sends Y.
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 9, yx, yy));
+        CHECK(pad_of(q).buttons == 0, "hidden Y in a stage sends %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 9, yx, yy));
+        sa2_touch::set_action_buttons(q, true);
+        CHECK(shown({Control::Stick, Control::A, Control::B, Control::Y, Control::Start, Control::LT, Control::RT}),
+              "a stage with action-buttons");
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 9, yx, yy));
+        CHECK(pad_of(q).buttons == 0x8000, "Y with action-buttons sends %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 9, yx, yy));
+        sa2_touch::set_action_buttons(q, false);
+        CHECK(!sa2_touch::control_shown(q, Control::Y), "Y stayed after action-buttons went off");
         // A held when a cutscene starts: it sends nothing from then on; START alone is there, and
         // a finger on the stick's half is no stick.
         sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 3, ax, ay));
@@ -705,7 +723,10 @@ int main(int argc, char** argv) {
         st.mode = 13;
         sa2_touch::set_game_state(q, st);
         CHECK(sa2_touch::context(q) == Context::Menu && sa2_touch::theme(q) == Theme::Sonic &&
-              shown({Control::Stick, Control::A, Control::B, Control::Start}), "the menus");
+              shown({Control::Stick, Control::A, Control::B, Control::Y, Control::Start}), "the menus");
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 9, yx, yy));
+        CHECK(pad_of(q).buttons == 0x8000, "Y in the menus sends %04x", pad_of(q).buttons);
+        sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 9, yx, yy));
         sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_DOWN, 6, rtx, rty));
         CHECK(pad_of(q).rt == 0, "RT in the menus");
         sa2_touch::handle_event(q, finger(SDL_EVENT_FINGER_UP, 6, 0, 0));

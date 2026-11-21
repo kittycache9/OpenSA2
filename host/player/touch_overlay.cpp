@@ -161,21 +161,24 @@ Layout layout(const Settings& st, float w, float h, uint32_t fw, uint32_t fh, co
 // What each context uses (touch_overlay.h, "The game's state"), the one table to change: the
 // stick, the XInput buttons (the outputs, after SA2_TOUCH_MAP) and the triggers. In a stage
 // JUMP (A), ACTION (B) and START (the pause), and LT and RT, which turn the camera (PC SA2's
-// triggers; host/player/tweaks/camera-invert.h swaps them); in a menu the stick, A to choose, B
-// to go back and START; in Chao World every button; in a cutscene START alone, which skips it.
+// triggers; host/player/tweaks/camera-invert.h swaps them), and Y too with the action-buttons
+// tweak on (runtime/tweaks/action-buttons.c: Y does the light dash); in a menu the stick, A to
+// choose, B to go back, Y (Stage Select's character picker, runtime/tweaks/character-select.c)
+// and START; in Chao World every button; in a cutscene START alone, which skips it.
 struct ContextUse {
     Context context;
     const char* name;
     bool stick;
     uint16_t buttons;            // XInput bits
     bool lt, rt;
+    uint16_t action_buttons;     // the bits it uses as well with the action-buttons tweak on
 };
 const ContextUse kContextUses[kContexts] = {
-    {Context::Unknown, "unknown", true, 0xFFFF, true, true},
-    {Context::Menu, "menu", true, kA | kB | kStart, false, false},
-    {Context::Stage, "stage", true, kA | kB | kStart, true, true},
-    {Context::ChaoWorld, "chao world", true, kA | kB | kX | kY | kStart, true, true},
-    {Context::Cutscene, "cutscene", false, kStart, false, false},
+    {Context::Unknown, "unknown", true, 0xFFFF, true, true, 0},
+    {Context::Menu, "menu", true, kA | kB | kY | kStart, false, false, 0},
+    {Context::Stage, "stage", true, kA | kB | kStart, true, true, kY},
+    {Context::ChaoWorld, "chao world", true, kA | kB | kX | kY | kStart, true, true, 0},
+    {Context::Cutscene, "cutscene", false, kStart, false, false, 0},
 };
 const ContextUse& use_of(Context c) {
     for (const ContextUse& u : kContextUses) if (u.context == c) return u;
@@ -217,11 +220,11 @@ const CharacterTheme kCharacterThemes[] = {
 
 // The layout as the overlay's style and context show it: in the adventure style, a control whose
 // output the context does not use is not there (never drawn, never hit).
-void apply_context(Layout& l, const Settings& st, Context c) {
+void apply_context(Layout& l, const Settings& st, Context c, bool action_buttons) {
     if (st.style != Style::Adventure) return;
     l.stick_shown = context_uses_stick(c);
     for (Button& b : l.b)
-        if (b.shown && !context_uses(c, b.bit, b.trigger)) b.shown = false;
+        if (b.shown && !context_uses(c, b.bit, b.trigger, action_buttons)) b.shown = false;
 }
 
 // The button under (x, y), or -1: the nearest round one within 1.3 radii, else a box with a
@@ -321,6 +324,7 @@ struct Overlay {
     GameState game;                      // set_game_state
     Context ctx = Context::Unknown;
     Theme auto_theme = Theme::Sonic;     // theme_of the last state
+    bool action_buttons = false;         // set_action_buttons
     // The game's art: the atlas (load_art), and what it needs on the device, made at the first
     // draw that uses it.
     bool has_art = false;
@@ -340,7 +344,7 @@ namespace {
 // layout() as the overlay is now: its settings, frame and picture, and its context.
 Layout shown_layout(const Overlay* o, float w, float h) {
     Layout l = layout(o->settings, w, h, o->frame_w, o->frame_h, o->anchor);
-    apply_context(l, o->settings, o->ctx);
+    apply_context(l, o->settings, o->ctx, o->action_buttons);
     return l;
 }
 
@@ -1145,7 +1149,7 @@ float stick_radius(const Overlay* o, uint32_t w, uint32_t h) { return layout_of(
 
 bool control_shown(const Overlay* o, Control c) {
     Layout l = layout_of(o, 1280, 720);
-    if (o) apply_context(l, o->settings, o->ctx);
+    if (o) apply_context(l, o->settings, o->ctx, o->action_buttons);
     switch (c) {
     case Control::Stick: return l.stick_shown;
     case Control::A: return l.b[B_A].shown;
@@ -1199,11 +1203,18 @@ Theme theme_of(const GameState& s, Context c) {
     return Theme::Sonic;
 }
 
-bool context_uses(Context c, uint16_t bit, int trigger) {
+bool context_uses(Context c, uint16_t bit, int trigger, bool action_buttons) {
     const ContextUse& u = use_of(c);
     if (trigger == 1) return u.lt;
     if (trigger == 2) return u.rt;
-    return bit && (u.buttons & bit) == bit;
+    const uint16_t uses = u.buttons | (action_buttons ? u.action_buttons : 0);
+    return bit && (uses & bit) == bit;
+}
+
+void set_action_buttons(Overlay* o, bool on) {
+    if (!o) return;
+    o->action_buttons = on;
+    recompute(o);
 }
 
 bool context_uses_stick(Context c) { return use_of(c).stick; }

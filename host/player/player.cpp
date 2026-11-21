@@ -4588,6 +4588,11 @@ void Player::setup_pads() {
         else
             std::printf("pads: the touch controls draw their own shapes, not the game's art: %s\n", why.c_str());
     }
+    // The action-buttons tweak makes Y the light dash: a stage's touch controls show Y then.
+    if (sa2tw::named("action-buttons")) {
+        sa2_touch::set_action_buttons(touch_, true);
+        std::printf("pads: action-buttons is on, so the adventure style shows Y in a stage (the light dash)\n");
+    }
     if (state_notes_) apply_game_state();
     sa2_frametime::setup(SA2_PLAYER_GPU != 0, o_.pace && host());   // host tweak frametime-overlay
     const SDL_PropertiesID props = SDL_GetWindowProperties(win_);
@@ -6234,6 +6239,7 @@ int main(int argc, char** argv) {
                                            !o.synthetic_keys.empty() || !o.synthetic_input.empty());
     const sa2tw::Reading tweaks = sa2tw::read(getenv("SA2_TWEAKS"), sa2tw::off(not_play), "player");
     sa2tw::g_on = tweaks.on;
+    sa2tw::g_names = tweaks.names;
     if (!tweaks.line.empty()) std::fprintf(stderr, "%s\n", tweaks.line.c_str());
     sa2tw::tex_filter::start();
     o.vsync = sa2tw::vsync(o.vsync);   // the vsync tweak: --vsync in play (tweaks/vsync.cpp)
