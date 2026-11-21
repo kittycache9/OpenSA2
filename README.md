@@ -12,7 +12,7 @@ The aim is to preserve the game's original logic while making that logic run on 
 
 ## Download the experimental builds
 
-Windows ZIP, Android APK, and Linux DEB packages are available from [GitHub Releases](https://github.com/kittycache9/OpenSA2/releases/tag/v0.1.0-alpha.6.1). You need your own supported copy of the 2012 PC game. The packages include recompiled logic and the port's runtime; you supply the original executable and assets through the installer.
+Windows ZIP, Android APK, and Linux DEB packages are available from [GitHub Releases](https://github.com/kittycache9/OpenSA2/releases/tag/v0.1.0-alpha.7). You need your own supported copy of the 2012 PC game. The packages include recompiled logic and the port's runtime; you supply the original executable and assets through the installer.
 
 This is an experimental prerelease with incomplete stage coverage. On Android, the app's **Report on GitHub** button copies a crash report for a bug report. Read the [setup instructions](docs/downloads.md) and [current limitations](docs/status.md) before playing.
 
