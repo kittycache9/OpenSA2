@@ -34,12 +34,20 @@
  *   it set, 0x005489D0 counts down while the animal is off camera (0x00548A06) and then deletes
  *   it. [twp + 0xF4] is "eaten".
  *
+ *   The player. A player picks up the nearest object its collision touches (0x0045A260, through
+ *   0x0045A160), and only one whose work word at + 4 has flag 0x40 set and 0x8000 (held) clear; the
+ *   object is then kept as the one to hold, [playerwk + 0x9C] (0x0045A2CB). So an animal let go by
+ *   a Chao, its flag 0x40 cleared at 0x00548996, can no longer be picked up even with + 0xF4 put
+ *   back: that was the first build's fault on a device, where drives (whose let-go leaves + 4
+ *   alone) could be picked up again and animals could not.
+ *
  * What the wraps do. On, each reads the mode first and acts only in the mode it is called in to
  * hold the item (drive 3, animal 2). Before the lifted body it keeps rec and its 0x14 bytes (when
- * rec is not 0; the body clears none otherwise), and for an animal the dword at + 0xF4. After it,
- * a drive that went from 3 to 4 is put in mode 1 with byte 1 at 0, so its set-up runs again and it
- * lies free where the Chao let go of it; an animal that went from 2 to 0 with + 0xF4 now 1 gets
- * its old + 0xF4 back. Before either, rec's 0x14 bytes are written back and rec goes back into
+ * rec is not 0; the body clears none otherwise), and for an animal the dword at + 0xF4 and the
+ * word at + 4. After it, a drive that went from 3 to 4 is put in mode 1 with byte 1 at 0, so its
+ * set-up runs again and it lies free where the Chao let go of it; an animal that went from 2 to 0
+ * with + 0xF4 now 1 gets its old + 0xF4 back and its old flags 0x240 at + 4 (the rest of the word
+ * stays as the body left it), so it is a free animal the player can pick up. Before either, rec's 0x14 bytes are written back and rec goes back into
  * [entry + 8]. Everything else the body did is kept. Off, each wrap only calls the lifted body.
  *
  * What it does not do, and what is not checked. Fruit is not covered: a Chao eats it through
@@ -50,8 +58,9 @@
  * any other let-go, so any item a Chao lets go of, eaten or not, now drops instead of being used
  * up. The save record is written back as it was when the Chao held the item; whether the game
  * updates its position when the item moves again, or saves the item at the old place, is not
- * read. Nobody has played it yet: that the dropped item can be picked up and given again rests on
- * the reading above.
+ * read. On a device a drive could be picked up and given again; the animal's flags were put back
+ * after that and have not been played yet. What flag 0x200 does is not read: it is put back
+ * because the body cleared it with 0x40 and a drive's let-go leaves both.
  *
  * Said once each: the first item kept, "sa2 tweaks: endless chao items: a Chao ate a Chaos Drive;
  * it was kept for another go" (or "a small animal"); an item's work that does not read, or a
@@ -70,6 +79,8 @@
 #define ENDLESS_REC        0x08u   /* in the entry: the item's garden save record */
 #define ENDLESS_REC_SIZE   0x14u   /* the bytes the body clears from the record */
 #define ENDLESS_EATEN      0xF4u   /* an animal's "eaten" dword, in its work */
+#define ENDLESS_FLAGS      0x04u   /* the work's flag word */
+#define ANIMAL_LET_GO      0x0240u /* the flags the animal's let-go clears; 0x40 holdable */
 #define DRIVE_HELD         3u
 #define DRIVE_GONE         4u
 #define DRIVE_FREE         1u
@@ -79,6 +90,7 @@
 /* An item held by a Chao, as it was before the body ran. */
 struct endless_item {
     uint32_t twp, entry, rec, eaten;
+    uint16_t flags;
     uint8_t mode, bytes[ENDLESS_REC_SIZE];
 };
 
@@ -91,16 +103,19 @@ static int peek(uint32_t a, uint32_t n, void *v) { return sa2_peek(a, n, v) == S
 static int poke(uint32_t a, uint32_t n, const void *v) { return sa2_poke(a, n, v) == SA2_OK; }
 
 /* The item's work and mode, then, in its holding mode, its record and (an animal) its eaten
- * dword. 1: held, all read; 0: not held, or a read failed (said once). */
+ * dword and flags. 1: held, all read; 0: not held, or a read failed (said once). */
 static int endless_read(uint32_t task, uint8_t held, int animal, struct endless_item *it,
                         const char *what) {
     it->rec = it->eaten = 0;
+    it->flags = 0;
     if (!peek(task + ENDLESS_TWP, 4, &it->twp) || !peek(it->twp, 1, &it->mode)) goto unread;
     if (it->mode != held) return 0;
     if (!peek(task + ENDLESS_ENTRY, 4, &it->entry)) goto unread;
     if (it->entry && !peek(it->entry + ENDLESS_REC, 4, &it->rec)) goto unread;
     if (it->rec && !peek(it->rec, ENDLESS_REC_SIZE, it->bytes)) goto unread;
-    if (animal && !peek(it->twp + ENDLESS_EATEN, 4, &it->eaten)) goto unread;
+    if (animal && (!peek(it->twp + ENDLESS_EATEN, 4, &it->eaten) ||
+                   !peek(it->twp + ENDLESS_FLAGS, 2, &it->flags)))
+        goto unread;
     return 1;
 unread:
     if (!g_endless_read_said++)
@@ -157,10 +172,14 @@ void *__wrap_sub_548870(void *state, uint32_t pc, void *memory) {
     memory = __real_sub_548870(state, pc, memory);
     uint8_t mode = 0xFF;
     uint32_t eaten = 0;
+    uint16_t flags = 0;
     if (!held || !peek(it.twp, 1, &mode) || mode != ANIMAL_FREE ||
-        !peek(it.twp + ENDLESS_EATEN, 4, &eaten) || eaten != 1)
+        !peek(it.twp + ENDLESS_EATEN, 4, &eaten) || eaten != 1 ||
+        !peek(it.twp + ENDLESS_FLAGS, 2, &flags))
         return memory;
-    if (!endless_put_back(&it) || !poke(it.twp + ENDLESS_EATEN, 4, &it.eaten)) {
+    flags = (uint16_t)((flags & ~ANIMAL_LET_GO) | (it.flags & ANIMAL_LET_GO));
+    if (!endless_put_back(&it) || !poke(it.twp + ENDLESS_EATEN, 4, &it.eaten) ||
+        !poke(it.twp + ENDLESS_FLAGS, 2, &flags)) {
         endless_unwritten(what, task);
         return memory;
     }

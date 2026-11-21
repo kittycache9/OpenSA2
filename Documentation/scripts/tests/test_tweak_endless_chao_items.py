@@ -1,7 +1,8 @@
 """The endless-chao-items tweak (runtime/tweaks/endless-chao-items.c): a Chaos Drive or a small
 animal a Chao lets go of is not used up. The drive's held mode (0x00544F30, ESI = the task) is put
 back in mode 1 in place of mode 4, and the animal's (0x00548870, EAX = the task) gets its "eaten"
-dword at work + 0xF4 back; both get their garden save record back. With the tweak off (or in a
+dword at work + 0xF4 back and its flags 0x240 at work + 4 (0x40: the player can pick it up);
+both get their garden save record back. With the tweak off (or in a
 replay) the lifted bodies run alone.
 
 The tweak's file is built with the pinned zig beside runtime/sa2_tweaks.c, as
@@ -37,6 +38,7 @@ KEPT_ANIMAL = "sa2 tweaks: endless chao items: a Chao ate a small animal; it was
 # `lifted-animal` (the stand-in alone). Switches hold for the steps after them:
 #   mode=N     the item's mode byte before the call (default: the holding mode, 3 or 2)
 #   eaten=N    the animal's dword at work + 0xF4 before the call (default 0)
+#   flags=N    the work's flag word at + 4 before the call (default 0x261)
 #   held       the Chao still holds the item: the body changes nothing
 #   norec      [entry + 8] is 0: the item has no save record
 #   notask     the task register points at memory that does not read
@@ -126,11 +128,12 @@ void *__wrap_sub_548870(void *state, uint32_t pc, void *memory);
 
 int main(int argc, char **argv) {
     int token, mode = -1, norec = 0, notask = 0;
-    uint32_t eaten = 0;
+    uint32_t eaten = 0, flags = 0x0261u;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         if (!strncmp(a, "mode=", 5)) { mode = (int)strtol(a + 5, NULL, 0); continue; }
         if (!strncmp(a, "eaten=", 6)) { eaten = (uint32_t)strtoul(a + 6, NULL, 0); continue; }
+        if (!strncmp(a, "flags=", 6)) { flags = (uint32_t)strtoul(a + 6, NULL, 0); continue; }
         if (!strcmp(a, "held")) { held = 1; continue; }
         if (!strcmp(a, "norec")) { norec = 1; continue; }
         if (!strcmp(a, "notask")) { notask = 1; continue; }
@@ -143,7 +146,7 @@ int main(int argc, char **argv) {
         for (uint32_t k = 0; k < 0x14; k++) wr8(REC + k, (uint8_t)(0x40 + k));
         wr8(TWP, (uint8_t)(mode >= 0 ? mode : drive ? 3 : 2));
         wr8(TWP + 1, 2);
-        wr16(TWP + 4, 0x0261);
+        wr16(TWP + 4, (uint16_t)flags);
         wr32(TWP + 0xF4, eaten);
         wr32(STACK, 0x005450F8u);
         const uint32_t task = notask ? 0x90000u : TASK;
@@ -199,7 +202,7 @@ CLEARED = "ffffffff" + "00" * 16                                 # as the bodies
 DRIVE_USED = f"4 0 0 {CLEARED} 0 261 4"
 DRIVE_KEPT = f"1 0 33000 {SAVED} 0 261 4"
 ANIMAL_USED = f"0 0 0 {CLEARED} 1 21 4"
-ANIMAL_KEPT = f"0 0 33000 {SAVED} 0 21 4"
+ANIMAL_KEPT = f"0 0 33000 {SAVED} 0 261 4"
 
 
 @pytest.mark.parametrize("env", [{}, {"SA2_TWEAKS": ""}, {"SA2_TWEAKS": "no-event-bars"}])
@@ -218,7 +221,7 @@ def test_on_a_drive_let_go_lies_free_with_its_record(exe):
 
 
 def test_on_an_animal_let_go_is_not_eaten_and_keeps_its_record(exe):
-    """Mode 0 and the flags at work + 4 are the body's; + 0xF4 and the record are as before."""
+    """Mode 0 is the body's; + 0xF4, the flags 0x240 at + 4 and the record are as before."""
     out, err = run(exe, "animal", **ENDLESS)
     assert out == [ANIMAL_KEPT]
     assert err.splitlines() == [ON, KEPT_ANIMAL]
@@ -226,7 +229,16 @@ def test_on_an_animal_let_go_is_not_eaten_and_keeps_its_record(exe):
 
 def test_an_animal_already_marked_eaten_keeps_its_old_mark(exe):
     out, _ = run(exe, "eaten=1", "animal", **ENDLESS)
-    assert out == [f"0 0 33000 {SAVED} 1 21 4"]
+    assert out == [f"0 0 33000 {SAVED} 1 261 4"]
+
+
+@pytest.mark.parametrize("before, after", [("0x41", "41"), ("0x201", "201"), ("0x1", "1"),
+                                           ("0x8241", "8241")])
+def test_an_animal_gets_back_only_the_flags_the_let_go_cleared(exe, before, after):
+    """0x40 (the player may pick it up) and 0x200 come back as they were before the call; no other
+    flag is set."""
+    out, _ = run(exe, f"flags={before}", "animal", **ENDLESS)
+    assert out == [f"0 0 33000 {SAVED} 0 {after} 4"]
 
 
 def test_the_first_item_kept_is_said_once(exe):
@@ -237,7 +249,7 @@ def test_the_first_item_kept_is_said_once(exe):
 
 def test_an_item_with_no_record_is_kept_without_one(exe):
     out, _ = run(exe, "norec", "drive", "animal", **ENDLESS)
-    assert out == [f"1 0 0 {SAVED} 0 261 4", f"0 0 0 {SAVED} 0 21 4"]
+    assert out == [f"1 0 0 {SAVED} 0 261 4", f"0 0 0 {SAVED} 0 261 4"]
 
 
 def test_an_item_the_chao_still_holds_is_untouched(exe):
