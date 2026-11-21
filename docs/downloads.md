@@ -48,6 +48,7 @@ On the **Tweaks** screen, the **Chao** group has a **Turn on the Chao boosts** b
 - **Resolution** is the largest picture the screen holds. Fewer lines can run faster on a slower phone.
 - **Low-FPS speed fix (experimental)** keeps stages at their normal speed when the phone cannot draw 60 frames per second. **30 FPS** and **20 FPS** run two or three game ticks for each drawn frame, and **Auto** chooses one, two, or three as the game runs. Menus, cutscenes, and movies still slow down on a slow phone. It is off by default. See [Low-FPS speed fix](#low-fps-speed-fix-experimental) for what to expect.
 - **HUD at 4:3 positions** keeps the score, time, and rings near the middle of a wide picture. It is on by default.
+- **Text language** shows the game's menus, messages, and subtitles in English, German, Spanish, French, Italian, or Japanese. It is English by default. Voices can be English or Japanese: change them in the game's **Options** menu. See [Text language](#text-language).
 - **Touch controls** sets the size and opacity of the on-screen controls. At 0% opacity the controls are hidden but still work. **Style** is Classic by default, with flat see-through buttons. **Adventure** draws round, glossy buttons and stick in one colour, and **Colour** picks that colour: Sonic (blue, the default), Shadow, Knuckles, Tails, Rouge, Amy, Eggman, Metal Sonic, or Chao. **Face buttons** replaces A, B, X, and Y with two bigger buttons, Jump (sends A) and Action (sends B); START, LT, and RT stay. **Move the controls** lets you drag each control to a new place, and **Change what the touch buttons do** changes the game button each one sends.
 - **Controller** sets who player 1 is and what each button sends. **Player 1 controller** is Automatic (the first controller the game finds), the controller whose button you press, or all controllers together as one player. Use it when a handheld's built-in buttons act as player 2. **Set buttons by pressing** and **Controller buttons** change the game button that each controller button sends: press the button you want for A, or pick it from a list. Buttons are named by position: the bottom face button is A, as on an Xbox controller.
 - **Tweaks** are optional changes to the game, each off by default. Turn on **Remove cutscene black bars** to remove the black bars that in-engine cutscenes draw at the sides of a wide picture. Movies keep their bars. See [Tweaks](#tweaks) for what to expect. **Turn every tweak off** turns all of them off at once.
@@ -184,6 +185,16 @@ On Windows the file is `share\game.env` in the extracted folder. For the Linux p
 The launcher prints the tweaks it passes, and each session's game log starts with a line that names the active tweaks. A name that is not a tweak is reported by name in that line and ignored. Some tweaks change the player or the launcher instead of the game. The game's line names them as host tweaks, and the player says which of its tweaks are on in its own log, `player.err` (on Android, the session report). The launcher says which of its own are on in `launcher.log`.
 
 There is no tweak to remove the game's quit confirmation, the Mod Loader's DisableExitPrompt option, because OpenSA2 never shows it: closing the window, or pressing Back twice on Android, ends the game at once.
+
+## Text language
+
+The game can show its menus, messages, and subtitles in English, German, Spanish, French, Italian, or Japanese. On Android, choose **Text language** in the **Display** page of **Game settings**. On Windows and Linux, add one line to the release's `share/game.env` file, with `en`, `de`, `es`, `fr`, `it`, or `ja`:
+
+```
+SA2_TEXT_LANGUAGE=ja
+```
+
+On Windows the file is `share\game.env` in the extracted folder. For the Linux package it is `/usr/lib/opensa2/share/game.env`, which you edit as root; a package update replaces it. Without the line, the game keeps the language in its configuration file, which the installer sets to English. Voices are English or Japanese only, and you choose them in the game's **Options** menu. Replays and tests never use the setting.
 
 ## Source and checksums
 

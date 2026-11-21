@@ -59,6 +59,9 @@ final class GameSettings {
     /** The low-FPS speed fix's choices, as stored (runtime/sa2_frameskip.c): off, 30 or 20 drawn frames
      * a second in stages (2 or 3 game ticks per drawn frame), or auto (1 to 3, chosen as the game runs). */
     static final String[] FRAMESKIPS = {"off", "30", "20", "auto"};
+    /** The text language's choices, as stored and sent in SA2_TEXT_LANGUAGE (runtime/sa2_text_language.c);
+     * "" (the first) leaves the game's config alone, which the installer writes as English. */
+    static final String[] TEXT_LANGUAGES = {"", "de", "es", "fr", "it", "ja"};
     /** The touch overlay's on-screen buttons (host/player/touch_overlay.h SA2_TOUCH_MAP), and a pad's
      * buttons by position (host/player/player.cpp SA2_PAD_MAP), as the settings name them. */
     static final String[] TOUCH_BUTTONS = {"A", "B", "X", "Y", "START", "LT", "RT"};
@@ -320,6 +323,7 @@ final class GameSettings {
     int resolution = 0;                  // lines, 0 the screen's
     String aspect = "auto";
     String frameskip = "off";            // FRAMESKIPS; any other stored value is off
+    String textLanguage = "";            // TEXT_LANGUAGES; "" the game's own (English)
     int touchSize = 100, touchOpacity = 100;   // percent of the overlay's own
     int musicVolume = 100, voiceVolume = 100, sfxVolume = 100;   // percent of the game's level (volume-levels)
     int pictureY = 25;                         // upright, the picture's centre, percent of the height down (0 to 50)
@@ -341,6 +345,7 @@ final class GameSettings {
         s.resolution = p.getInt("resolution", s.resolution);
         s.aspect = p.getString("aspect", s.aspect);
         s.frameskip = p.getString("frameskip", s.frameskip);
+        s.textLanguage = p.getString("text_language", s.textLanguage);
         s.touchSize = p.getInt("touch_size", s.touchSize);
         s.touchOpacity = p.getInt("touch_opacity", s.touchOpacity);
         s.pictureY = p.getInt("picture_y", s.pictureY);
@@ -374,6 +379,7 @@ final class GameSettings {
                 .putInt("resolution", resolution)
                 .putString("aspect", aspect)
                 .putString("frameskip", frameskip)
+                .putString("text_language", textLanguage)
                 .putInt("touch_size", touchSize)
                 .putInt("touch_opacity", touchOpacity)
                 .putInt("picture_y", pictureY)
@@ -529,6 +535,9 @@ final class GameSettings {
         if ("30".equals(frameskip)) e.addAll(Arrays.asList("SA2_PLAY_FRAMESKIP=2", "SA2_ADPF_TARGET_US=33333"));
         else if ("20".equals(frameskip)) e.addAll(Arrays.asList("SA2_PLAY_FRAMESKIP=3", "SA2_ADPF_TARGET_US=50000"));
         else if ("auto".equals(frameskip)) e.add("SA2_PLAY_FRAMESKIP=auto");
+        // The game's text in another language than its config's; the runtime says why it refuses a
+        // value no build wrote.
+        if (!textLanguage.isEmpty()) e.add("SA2_TEXT_LANGUAGE=" + textLanguage);
         if (!LANDSCAPE.equals(orientation)) e.add("SA2_PLAYER_PICTURE_Y=" + fraction(pictureY));
         if (touchSize != 100) e.add("SA2_TOUCH_SCALE=" + fraction(touchSize));
         if (touchOpacity != 100) e.add("SA2_TOUCH_OPACITY=" + fraction(touchOpacity));

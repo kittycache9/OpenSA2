@@ -225,11 +225,12 @@ WINE_ROOT_DRIVE = "Z:"
 # (tools/oracle/run_oracle_probe.py: `proton runinprefix ./sonic2app-unpacked.exe`).
 LAUNCHER = "runinprefix"
 # Play's own resolution answer (runtime/sa2_widescreen.c: the config's Width and Height rewritten
-# for the device's aspect), its HUD at the 4:3 positions (SA2_PLAY_HUD43) and its tweaks
-# (SA2_TWEAKS, runtime/sa2_tweaks.h), which the launcher and the Android session set and no replay
-# may: a registered run keeps the default resolution, the port's HUD and the game's own behaviour,
-# so one left in a shell is stripped with the rest.
-PLAY_ENV = ("SA2_PLAY_RES", "SA2_PLAY_ASPECT", "SA2_PLAY_HUD43", "SA2_TWEAKS")
+# for the device's aspect), its HUD at the 4:3 positions (SA2_PLAY_HUD43), its tweaks
+# (SA2_TWEAKS, runtime/sa2_tweaks.h) and its text language (SA2_TEXT_LANGUAGE,
+# runtime/sa2_text_language.c), which the launcher and the Android session set and no replay
+# may: a registered run keeps the default resolution, the port's HUD, the game's own behaviour
+# and the config's language, so one left in a shell is stripped with the rest.
+PLAY_ENV = ("SA2_PLAY_RES", "SA2_PLAY_ASPECT", "SA2_PLAY_HUD43", "SA2_TWEAKS", "SA2_TEXT_LANGUAGE")
 # What only a tool's device_profile argument decides, and nothing in a shell.
 OWNED = (ENV,) + HOST_OVERRIDES + tuple(GUEST_ENV.values()) + PLAY_ENV + FRAMESKIP_ENV
 # The system devices' GUIDs (0x0087360C, 0x008735FC in the image).
