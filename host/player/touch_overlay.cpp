@@ -29,6 +29,7 @@ struct Button {
     int trigger;                 // 1 LT, 2 RT, 0 none
     float rgb[3];
     bool round;                  // hit by distance from the centre, else by the box
+    bool shown = true;           // false: not there (X and Y with two face buttons), never hit
 };
 enum { B_A, B_B, B_X, B_Y, B_START, B_LT, B_RT, B_COUNT };
 static_assert(B_COUNT == kButtons, "Settings::sends is by button");
@@ -118,10 +119,20 @@ Layout layout(const Settings& st, float w, float h, uint32_t fw, uint32_t fh, co
     const float r = 0.075f * s, d = 0.135f * s;
     float cx, cy;
     at(Group::Face, ax + aw - m - d - r, ay + ah - m - d - r, &cx, &cy);
-    l.b[B_A] = {cx, cy + d, r, r, r, kA, 0, {0.30f, 0.80f, 0.35f}, true};
-    l.b[B_B] = {cx + d, cy, r, r, r, kB, 0, {0.92f, 0.30f, 0.30f}, true};
-    l.b[B_X] = {cx - d, cy, r, r, r, kX, 0, {0.30f, 0.55f, 0.95f}, true};
-    l.b[B_Y] = {cx, cy - d, r, r, r, kY, 0, {0.95f, 0.80f, 0.25f}, true};
+    if (st.two_buttons) {
+        // JUMP (A) and ACTION (B) in the diamond's box (0.21 s each way), in its bottom-right and
+        // top-left corners; their reach (1.3 radii) leaves a gap between them.
+        const float rb = 0.10f * s, o = 0.21f * s - rb;
+        l.b[B_A] = {cx + o, cy + o, rb, rb, rb, kA, 0, {0.30f, 0.80f, 0.35f}, true};
+        l.b[B_B] = {cx - o, cy - o, rb, rb, rb, kB, 0, {0.92f, 0.30f, 0.30f}, true};
+        l.b[B_X] = {cx, cy, 0, 0, 0, 0, 0, {0, 0, 0}, true, false};
+        l.b[B_Y] = {cx, cy, 0, 0, 0, 0, 0, {0, 0, 0}, true, false};
+    } else {
+        l.b[B_A] = {cx, cy + d, r, r, r, kA, 0, {0.30f, 0.80f, 0.35f}, true};
+        l.b[B_B] = {cx + d, cy, r, r, r, kB, 0, {0.92f, 0.30f, 0.30f}, true};
+        l.b[B_X] = {cx - d, cy, r, r, r, kX, 0, {0.30f, 0.55f, 0.95f}, true};
+        l.b[B_Y] = {cx, cy - d, r, r, r, kY, 0, {0.95f, 0.80f, 0.25f}, true};
+    }
     const float ph = 0.035f * s;
     at(Group::Start, ax + aw * 0.5f, ay + m + ph, &cx, &cy);
     l.b[B_START] = {cx, cy, 0.075f * s, ph, ph, kStart, 0, {0.85f, 0.85f, 0.85f}, false};
@@ -131,7 +142,7 @@ Layout layout(const Settings& st, float w, float h, uint32_t fw, uint32_t fh, co
     at(Group::RT, ax + aw - m - tw, ay + m + th, &cx, &cy);
     l.b[B_RT] = {cx, cy, tw, th, th, 0, 2, {0.85f, 0.85f, 0.85f}, false};
     for (int i = 0; i < B_COUNT; ++i)
-        if (st.mapped[i]) {
+        if (st.mapped[i] && l.b[i].shown) {
             l.b[i].bit = st.sends[i].bit;
             l.b[i].trigger = st.sends[i].trigger;
         }
@@ -145,7 +156,7 @@ int hit(const Layout& l, float x, float y) {
     float best_d = 0;
     for (int i = 0; i < B_COUNT; ++i) {
         const Button& b = l.b[i];
-        if (b.round) {
+        if (b.round && b.shown) {
             const float d = std::hypot(x - b.x, y - b.y);
             if (d < 1.3f * b.r && (best < 0 || d < best_d)) { best = i; best_d = d; }
         }
@@ -154,7 +165,7 @@ int hit(const Layout& l, float x, float y) {
     const float pad = 0.02f * l.s;
     for (int i = 0; i < B_COUNT; ++i) {
         const Button& b = l.b[i];
-        if (!b.round && std::fabs(x - b.x) <= b.hx + pad && std::fabs(y - b.y) <= b.hy + pad) return i;
+        if (!b.round && b.shown && std::fabs(x - b.x) <= b.hx + pad && std::fabs(y - b.y) <= b.hy + pad) return i;
     }
     return -1;
 }
@@ -338,17 +349,75 @@ struct ShapeList {
     Uniforms* u;
     float opacity;               // SA2_TOUCH_OPACITY: every alpha times this, at most 1
     int n = 0;
-    void add(float x, float y, float hx, float hy, float r, float ring, const float rgb[3], float a) {
+    // A flat shape, or with `stripes` (a period in pixels) a glossy one (touch_overlay_shaders.py).
+    void add(float x, float y, float hx, float hy, float r, float ring, const float rgb[3], float a,
+             float stripes = 0) {
         if (n >= kMaxShapes) return;
         float* g = u->geom[n];
         g[0] = x; g[1] = y; g[2] = hx; g[3] = hy;
         float* s = u->style[n];
-        s[0] = r; s[1] = ring; s[2] = 0; s[3] = 0;
+        s[0] = r; s[1] = ring; s[2] = stripes > 0 ? 1.0f : 0.0f; s[3] = stripes;
         float* c = u->color[n];
         c[0] = rgb[0]; c[1] = rgb[1]; c[2] = rgb[2]; c[3] = std::min(1.0f, a * opacity);
         ++n;
     }
 };
+
+// The adventure style's colours by Theme: a face and a darker rim.
+struct ThemeColours {
+    float face[3], rim[3];
+};
+constexpr float c8(int v) { return float(v) / 255.0f; }
+#define SA2_RGB(h) {c8(((h) >> 16) & 255), c8(((h) >> 8) & 255), c8((h) & 255)}
+const ThemeColours kThemeColours[kThemes] = {
+    {SA2_RGB(0x1e5bd8), SA2_RGB(0x0b2f8a)},   // sonic: blue
+    {SA2_RGB(0x3c3d46), SA2_RGB(0xb3141b)},   // shadow: dark grey, a red rim
+    {SA2_RGB(0xd8261e), SA2_RGB(0x7a0b0b)},   // knuckles: red
+    {SA2_RGB(0xf2a01e), SA2_RGB(0x9a5406)},   // tails: orange-yellow
+    {SA2_RGB(0xb24ec4), SA2_RGB(0x5a1a6c)},   // rouge: pink-purple
+    {SA2_RGB(0xef68a8), SA2_RGB(0x96205c)},   // amy: pink
+    {SA2_RGB(0xe2561c), SA2_RGB(0x7c2408)},   // eggman: red-orange
+    {SA2_RGB(0x5c7092), SA2_RGB(0x27334c)},   // metal: blue-grey
+    {SA2_RGB(0x78c4f0), SA2_RGB(0x2c76a8)},   // chao: light blue
+};
+#undef SA2_RGB
+const char* const kThemeNames[kThemes] = {"sonic", "shadow", "knuckles", "tails", "rouge",
+                                          "amy", "eggman", "metal", "chao"};
+
+// The adventure style's controls (touch_overlay.h): `stick` the stick's finger or null, its base at
+// (sx, sy) and its knob (kx, ky) from there; `held` the buttons held, a bit by B_*.
+void draw_adventure(ShapeList& sh, const Layout& l, Theme theme, bool stick, float sx, float sy, float kx,
+                    float ky, uint32_t held) {
+    static const float white[3] = {1, 1, 1};
+    const ThemeColours& tc = kThemeColours[int(theme)];
+    const float stripes = std::max(3.0f, 0.014f * l.s), rim = std::max(2.0f, 0.012f * l.s);
+    // A glossy face and its rim; held, a little darker and smaller.
+    const auto button = [&](float x, float y, float hx, float hy, float r, bool down) {
+        const float k = down ? 0.92f : 1.0f, dim = down ? 0.72f : 1.0f;
+        const float face[3] = {tc.face[0] * dim, tc.face[1] * dim, tc.face[2] * dim};
+        sh.add(x, y, k * hx, k * hy, k * r, 0, face, down ? 0.80f : 0.72f, stripes);
+        sh.add(x, y, k * hx, k * hy, k * r, rim, tc.rim, down ? 0.95f : 0.85f);
+    };
+    // The stick: a disc tinted with the face colour and a thin ring of it, and a glossy knob.
+    const float R = l.stick_r, line = std::max(2.0f, 0.008f * l.s), kr = 0.42f * R;
+    sh.add(sx, sy, R, R, R, 0, tc.face, stick ? 0.32f : 0.22f);
+    sh.add(sx, sy, R, R, R, line, tc.face, stick ? 0.90f : 0.70f);
+    button(sx + kx, sy + ky, kr, kr, kr, stick);
+    for (int i = 0; i < B_COUNT; ++i) {
+        const Button& b = l.b[i];
+        if (b.shown) button(b.x, b.y, b.hx, b.hy, b.r, held & (1u << i));
+    }
+    // Labels: none yet, until a font with a known licence is chosen. A label would be drawn here,
+    // over each face (JUMP on B_A and ACTION on B_B with two face buttons), centred at b.x, b.y.
+    // START's mark: two bars; LT and RT: one (the classic style's).
+    const Button& st = l.b[B_START];
+    sh.add(st.x, st.y - 0.3f * st.hy, 0.45f * st.hx, 0.1f * st.hy, 0.1f * st.hy, 0, white, 0.8f);
+    sh.add(st.x, st.y + 0.3f * st.hy, 0.45f * st.hx, 0.1f * st.hy, 0.1f * st.hy, 0, white, 0.8f);
+    for (int i : {B_LT, B_RT}) {
+        const Button& b = l.b[i];
+        sh.add(b.x, b.y, 0.5f * b.hx, 0.12f * b.hy, 0.12f * b.hy, 0, white, 0.8f);
+    }
+}
 
 }  // namespace
 
@@ -449,25 +518,30 @@ void draw(Overlay* o, SDL_GPUCommandBuffer* cb, SDL_GPUTexture* target, uint32_t
         sy = stick->oy * fh;
         stick_offset(*stick, l, fw, fh, &kx, &ky);
     }
-    const float R = l.stick_r, line = std::max(2.0f, 0.008f * l.s);
-    sh.add(sx, sy, R, R, R, 0, dark, stick ? 0.30f : 0.18f);
-    sh.add(sx, sy, R, R, R, line, white, stick ? 0.55f : 0.35f);
-    sh.add(sx + kx, sy + ky, 0.42f * R, 0.42f * R, 0.42f * R, 0, white, stick ? 0.70f : 0.40f);
     uint32_t held = 0;
     for (const Finger& f : o->fingers) if (f.role == R_BUTTON && f.button >= 0) held |= 1u << f.button;
-    for (int i = 0; i < B_COUNT; ++i) {
-        const Button& b = l.b[i];
-        const bool down = held & (1u << i);
-        sh.add(b.x, b.y, b.hx, b.hy, b.r, 0, b.rgb, down ? 0.80f : 0.38f);
-        sh.add(b.x, b.y, b.hx, b.hy, b.r, std::max(1.5f, 0.005f * l.s), white, down ? 0.85f : 0.45f);
-    }
-    // START's mark: two bars; LT and RT: one.
-    const Button& st = l.b[B_START];
-    sh.add(st.x, st.y - 0.3f * st.hy, 0.45f * st.hx, 0.1f * st.hy, 0.1f * st.hy, 0, white, 0.8f);
-    sh.add(st.x, st.y + 0.3f * st.hy, 0.45f * st.hx, 0.1f * st.hy, 0.1f * st.hy, 0, white, 0.8f);
-    for (int i : {B_LT, B_RT}) {
-        const Button& b = l.b[i];
-        sh.add(b.x, b.y, 0.5f * b.hx, 0.12f * b.hy, 0.12f * b.hy, 0, white, 0.8f);
+    if (o->settings.style == Style::Adventure) {
+        draw_adventure(sh, l, o->settings.theme, stick, sx, sy, kx, ky, held);
+    } else {
+        const float R = l.stick_r, line = std::max(2.0f, 0.008f * l.s);
+        sh.add(sx, sy, R, R, R, 0, dark, stick ? 0.30f : 0.18f);
+        sh.add(sx, sy, R, R, R, line, white, stick ? 0.55f : 0.35f);
+        sh.add(sx + kx, sy + ky, 0.42f * R, 0.42f * R, 0.42f * R, 0, white, stick ? 0.70f : 0.40f);
+        for (int i = 0; i < B_COUNT; ++i) {
+            const Button& b = l.b[i];
+            if (!b.shown) continue;
+            const bool down = held & (1u << i);
+            sh.add(b.x, b.y, b.hx, b.hy, b.r, 0, b.rgb, down ? 0.80f : 0.38f);
+            sh.add(b.x, b.y, b.hx, b.hy, b.r, std::max(1.5f, 0.005f * l.s), white, down ? 0.85f : 0.45f);
+        }
+        // START's mark: two bars; LT and RT: one.
+        const Button& st = l.b[B_START];
+        sh.add(st.x, st.y - 0.3f * st.hy, 0.45f * st.hx, 0.1f * st.hy, 0.1f * st.hy, 0, white, 0.8f);
+        sh.add(st.x, st.y + 0.3f * st.hy, 0.45f * st.hx, 0.1f * st.hy, 0.1f * st.hy, 0, white, 0.8f);
+        for (int i : {B_LT, B_RT}) {
+            const Button& b = l.b[i];
+            sh.add(b.x, b.y, 0.5f * b.hx, 0.12f * b.hy, 0.12f * b.hy, 0, white, 0.8f);
+        }
     }
     SDL_GPUColorTargetInfo ct{};
     ct.texture = target;
@@ -537,6 +611,7 @@ std::vector<std::pair<std::string, std::string>> items(const std::string& v, cha
 
 bool parse_setting(const std::string& name, const std::string& value, Settings* s, std::string* why) {
     Settings n = *s;
+    why->clear();
     if (name == "SA2_TOUCH_SCALE") {
         if (!parse_number(value, 0.5f, 2.0f, &n.scale)) { *why = "not a number from 0.5 to 2"; return false; }
     } else if (name == "SA2_TOUCH_OPACITY") {
@@ -570,6 +645,26 @@ bool parse_setting(const std::string& name, const std::string& value, Settings* 
             n.sends[b] = out;
             n.mapped[b] = true;
         }
+    } else if (name == "SA2_TOUCH_STYLE") {
+        if (value == "classic") n.style = Style::Classic;
+        else if (value == "adventure") n.style = Style::Adventure;
+        else { *why = "not classic or adventure"; return false; }
+    } else if (name == "SA2_TOUCH_THEME") {
+        int t = 0;
+        while (t < kThemes && value != kThemeNames[t]) ++t;
+        if (t < kThemes) {
+            n.theme = Theme(t);
+        } else if (value == "auto") {
+            n.theme = Theme::Sonic;
+            *why = "auto: the character being played is not known to the player yet, so sonic's colours";
+        } else {
+            *why = "not one of sonic shadow knuckles tails rouge amy eggman metal chao auto";
+            return false;
+        }
+    } else if (name == "SA2_TOUCH_FACE") {
+        if (value == "four") n.two_buttons = false;
+        else if (value == "two") n.two_buttons = true;
+        else { *why = "not four or two"; return false; }
     } else {
         *why = "not a touch setting";
         return false;

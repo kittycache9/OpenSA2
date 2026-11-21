@@ -26,8 +26,9 @@ FIFO this test reads, so each record the game would read is checked byte for byt
   * player two: SA2_PAD_P2 naming the first pad gives it slot 1 and leaves slot 0 for the next;
   * settings: the same script with SA2_PAD_MAP (a pad's SOUTH and EAST swapped), SA2_TOUCH_MAP
     (the overlay's A sends X) and the overlay bigger with its stick and diamond swapped
-    (SA2_TOUCH_SCALE, SA2_TOUCH_LAYOUT) sends the same records with only those buttons changed:
-    the script's touches find the controls where the settings put them.
+    (SA2_TOUCH_SCALE, SA2_TOUCH_LAYOUT), in the adventure style (SA2_TOUCH_STYLE, SA2_TOUCH_THEME=auto,
+    which the log says is sonic's colours for now), sends the same records with only those buttons
+    changed: the script's touches find the controls where the settings put them.
 
 The window opens for a few seconds (the interactive mode refuses a hidden one). The player is
 built from this tree by host/d3d9gpu/build.sh (about a minute and a half), unless SA2_PLAYER_GPU
@@ -130,7 +131,10 @@ EXPECTED = [
 
 # The settings run (test_the_settings_change_only_what_they_name).
 SETTINGS = {"SA2_PAD_MAP": "SOUTH=B,EAST=A", "SA2_TOUCH_MAP": "A=X", "SA2_TOUCH_SCALE": "1.5",
-            "SA2_TOUCH_LAYOUT": "STICK=0.8,0.65;FACE=0.2,0.6"}
+            "SA2_TOUCH_LAYOUT": "STICK=0.8,0.65;FACE=0.2,0.6", "SA2_TOUCH_STYLE": "adventure",
+            "SA2_TOUCH_THEME": "auto"}
+# What the log adds after a setting taken with a remark (touch_overlay.h parse_setting).
+REMARKS = {"SA2_TOUCH_THEME": " (auto: the character being played is not known to the player yet, so sonic's colours)"}
 # EXPECTED with pad 0's SOUTH (A) sending B, pad 2's EAST (B) sending A, and the overlay's A X.
 EXPECTED_SETTINGS = [
     (OFF, OFF, OFF, OFF),
@@ -361,7 +365,7 @@ def test_the_overlay_alone(tmp_path):
     """The overlay without the player: its pad from finger events, with the stick's origin
     fixed where its finger landed (past the radius a full push in the finger's direction, the
     origin unmoved; a new touch re-centres), and its drawing (the base where the finger landed,
-    the knob at the rim) on a Vulkan device with no window."""
+    the knob at the rim) on a Vulkan device with no window, in the classic and adventure styles."""
     if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
         pytest.fail("no display: SDL's video subsystem, which the test's device needs, finds none")
     install = Path(os.environ.get("SA2_S5_INSTALL") or ROOT / "private/s5-tools/install").resolve()
@@ -375,6 +379,8 @@ def test_the_overlay_alone(tmp_path):
     r = subprocess.run([str(exe), str(tmp_path)], capture_output=True, text=True, timeout=120, env=env)
     assert r.returncode == 0 and r.stdout.splitlines()[-1] == "TOUCH_OVERLAY_OK", r.stdout + r.stderr
     assert "pad mapping: ok" in r.stdout and (tmp_path / "overlay.png").is_file()
+    for name in ("overlay-adventure.png", "overlay-adventure-knuckles.png", "overlay-adventure-two.png"):
+        assert (tmp_path / name).is_file(), name
 
 
 def test_the_run_and_its_script(runs):
@@ -415,7 +421,7 @@ def test_the_settings_change_only_what_they_name(runs):
     assert r["report"]["synthetic_input"]["failures"] == 0
     said = (r["out"] / "player.out").read_text()
     for k, v in SETTINGS.items():
-        assert f"pads: {k}={v}\n" in said, said[-3000:]
+        assert f"pads: {k}={v}{REMARKS.get(k, '')}\n" in said, said[-3000:]
     records_match(r["records"], EXPECTED_SETTINGS)
 
 

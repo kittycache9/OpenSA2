@@ -60,7 +60,7 @@ public class Sa2LayoutActivity extends Activity {
         int[] screen = GameSettings.screen(this);
         int[] frame = mS.frame(screen != null ? screen[0] : 1920, screen != null ? screen[1] : 1080);
         mEditor = new Editor(this, upright, frame[0], frame[1], mS.touchSize / 100f, mS.pictureAnchor(),
-                             mS.layoutLandscape, mS.layoutPortrait);
+                             mS.layoutLandscape, mS.layoutPortrait, GameSettings.TOUCH_FACES[1].equals(mS.touchFace));
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -205,6 +205,7 @@ public class Sa2LayoutActivity extends Activity {
         final boolean upright;       // the orientation the editor edits
         final int frameW, frameH;
         final float scale, anchor;
+        final boolean twoButtons;    // SA2_TOUCH_FACE=two: JUMP and ACTION in the face group's box
         float minTop;                // the safe area's top: SDL's, from the same insets (SDLSurface); SDL
                                      // reports none below API 30, so neither does the editor there
         String landscape, portrait;  // the places, kept while the screen changes size
@@ -218,9 +219,10 @@ public class Sa2LayoutActivity extends Activity {
         private final RectF rect = new RectF();
 
         Editor(Context c, boolean upright, int frameW, int frameH, float scale, float anchor, String landscape,
-               String portrait) {
+               String portrait, boolean twoButtons) {
             super(c);
             this.upright = upright;
+            this.twoButtons = twoButtons;
             this.frameW = frameW;
             this.frameH = frameH;
             this.scale = scale;
@@ -400,12 +402,19 @@ public class Sa2LayoutActivity extends Activity {
             fill.setColor(Color.WHITE);
             fill.setAlpha(102);
             c.drawCircle(l.x[0], l.y[0], 0.42f * R, fill);
-            // The diamond: A below, B right, X left, Y above.
+            // The diamond: A below, B right, X left, Y above; or JUMP (A) below right and ACTION (B)
+            // above left, in the same box (touch_overlay.cpp layout()).
             float r = 0.075f * s, d = 0.135f * s, fx = l.x[1], fy = l.y[1];
-            circle(c, fx, fy + d, r, Color.rgb(0x4D, 0xCC, 0x59), 97, 115, ring);
-            circle(c, fx + d, fy, r, Color.rgb(0xEB, 0x4D, 0x4D), 97, 115, ring);
-            circle(c, fx - d, fy, r, Color.rgb(0x4D, 0x8C, 0xF2), 97, 115, ring);
-            circle(c, fx, fy - d, r, Color.rgb(0xF2, 0xCC, 0x40), 97, 115, ring);
+            if (twoButtons) {
+                float rb = 0.10f * s, o = 0.21f * s - rb;
+                circle(c, fx + o, fy + o, rb, Color.rgb(0x4D, 0xCC, 0x59), 97, 115, ring);
+                circle(c, fx - o, fy - o, rb, Color.rgb(0xEB, 0x4D, 0x4D), 97, 115, ring);
+            } else {
+                circle(c, fx, fy + d, r, Color.rgb(0x4D, 0xCC, 0x59), 97, 115, ring);
+                circle(c, fx + d, fy, r, Color.rgb(0xEB, 0x4D, 0x4D), 97, 115, ring);
+                circle(c, fx - d, fy, r, Color.rgb(0x4D, 0x8C, 0xF2), 97, 115, ring);
+                circle(c, fx, fy - d, r, Color.rgb(0xF2, 0xCC, 0x40), 97, 115, ring);
+            }
             pill(c, l.x[2], l.y[2], 0.075f * s, 0.035f * s, 2, s);
             pill(c, l.x[3], l.y[3], 0.09f * s, 0.04f * s, 1, s);
             pill(c, l.x[4], l.y[4], 0.09f * s, 0.04f * s, 1, s);

@@ -62,6 +62,14 @@ final class GameSettings {
     /** The touch overlay's on-screen buttons (host/player/touch_overlay.h SA2_TOUCH_MAP), and a pad's
      * buttons by position (host/player/player.cpp SA2_PAD_MAP), as the settings name them. */
     static final String[] TOUCH_BUTTONS = {"A", "B", "X", "Y", "START", "LT", "RT"};
+    /** The touch overlay's looks, colour themes and face buttons, as SA2_TOUCH_STYLE, SA2_TOUCH_THEME and
+     * SA2_TOUCH_FACE name them (host/player/touch_overlay.h), each list's first the overlay's default. The
+     * themes are the adventure style's; the overlay takes "auto" too, but cannot follow the character
+     * yet, so it is not offered. */
+    static final String[] TOUCH_STYLES = {"classic", "adventure"};
+    static final String[] TOUCH_THEMES = {"sonic", "shadow", "knuckles", "tails", "rouge", "amy", "eggman", "metal",
+                                          "chao"};
+    static final String[] TOUCH_FACES = {"four", "two"};
     static final String[] PAD_BUTTONS = {"SOUTH", "EAST", "WEST", "NORTH", "LB", "RB", "BACK", "START", "LS", "RS",
                                          "UP", "DOWN", "LEFT", "RIGHT"};
     static final String[] PAD_DEFAULTS = {"A", "B", "X", "Y", "LB", "RB", "BACK", "START", "LS", "RS",
@@ -315,6 +323,7 @@ final class GameSettings {
     int pictureY = 25;                         // upright, the picture's centre, percent of the height down (0 to 50)
     String layoutLandscape = "", layoutPortrait = "";  // SA2_TOUCH_LAYOUT, SA2_TOUCH_LAYOUT_PORTRAIT; "" its own
     String touchMap = "", padMap = "";         // SA2_TOUCH_MAP and SA2_PAD_MAP, only what differs
+    String touchStyle = "classic", touchTheme = "sonic", touchFace = "four";   // TOUCH_STYLES, TOUCH_THEMES, TOUCH_FACES
     String padFirst = "", padFirstName = "";   // SA2_PAD_P1 ("" automatic), and the controller's name for the screen
     String padSecond = "", padSecondName = ""; // SA2_PAD_P2, the same for player 2 (never "ALL")
     final Set<String> tweaksOn = new HashSet<>();  // the TWEAKS names turned on; none by default
@@ -339,6 +348,9 @@ final class GameSettings {
         s.layoutLandscape = p.getString("touch_layout", s.layoutLandscape);
         s.layoutPortrait = p.getString("touch_layout_portrait", s.layoutPortrait);
         s.touchMap = p.getString("touch_map", s.touchMap);
+        s.touchStyle = p.getString("touch_style", s.touchStyle);
+        s.touchTheme = p.getString("touch_theme", s.touchTheme);
+        s.touchFace = p.getString("touch_face", s.touchFace);
         s.padMap = p.getString("pad_map", s.padMap);
         s.padFirst = p.getString("pad_first", s.padFirst);
         s.padFirstName = p.getString("pad_first_name", s.padFirstName);
@@ -369,6 +381,9 @@ final class GameSettings {
                 .putString("touch_layout", layoutLandscape)
                 .putString("touch_layout_portrait", layoutPortrait)
                 .putString("touch_map", touchMap)
+                .putString("touch_style", touchStyle)
+                .putString("touch_theme", touchTheme)
+                .putString("touch_face", touchFace)
                 .putString("pad_map", padMap)
                 .putString("pad_first", padFirst)
                 .putString("pad_first_name", padFirstName)
@@ -518,6 +533,13 @@ final class GameSettings {
         if (!layoutLandscape.isEmpty()) e.add("SA2_TOUCH_LAYOUT=" + layoutLandscape);
         if (!layoutPortrait.isEmpty()) e.add("SA2_TOUCH_LAYOUT_PORTRAIT=" + layoutPortrait);
         if (!touchMap.isEmpty()) e.add("SA2_TOUCH_MAP=" + touchMap);
+        // The look: each only when it is one of the choices and not the overlay's default (a stored
+        // value no build offers is the default); the colour only for the adventure style, the one that
+        // has colours.
+        boolean adventure = TOUCH_STYLES[1].equals(touchStyle);
+        if (adventure) e.add("SA2_TOUCH_STYLE=" + touchStyle);
+        if (adventure && Arrays.asList(TOUCH_THEMES).indexOf(touchTheme) > 0) e.add("SA2_TOUCH_THEME=" + touchTheme);
+        if (TOUCH_FACES[1].equals(touchFace)) e.add("SA2_TOUCH_FACE=" + touchFace);
         if (!padMap.isEmpty()) e.add("SA2_PAD_MAP=" + padMap);
         if (!padFirst.isEmpty()) e.add("SA2_PAD_P1=" + padFirst);
         if (!padSecond.isEmpty() && !"ALL".equals(padFirst)) e.add("SA2_PAD_P2=" + padSecond);

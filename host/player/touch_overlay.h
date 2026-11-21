@@ -7,6 +7,11 @@
 // (radius 12% of the screen's short side; a finger pulled past the radius is a full push in its
 // direction from the origin, which does not move), the A/B/X/Y diamond bottom right, START top
 // centre, LT and RT top left and right.
+// The adventure style (SA2_TOUCH_STYLE below) draws the same controls in the game's own menu look,
+// after a concept by NoasYTOFC (Kaito): round glossy buttons, lighter at the top and darker at the
+// bottom, with thin stripes across them and a darker rim, in one colour theme per character; the
+// stick a tinted disc with a thin ring and a glossy knob. Everything is drawn by the shader: no
+// image, and no text yet (touch_overlay.cpp draw() says where labels would go).
 // Every finger is tracked by its id, so the stick and any buttons are held together; a finger
 // that lands on a button can slide onto another. Fingers of SDL's mouse-touch device are not
 // touches and are ignored.
@@ -36,6 +41,16 @@
 //                                 picture when there is one, else the window)
 //   SA2_TOUCH_MAP=B=OUT,...       what an on-screen button sends: B one of A B X Y START LT RT,
 //                                 OUT a game button by input.h pad_output_named's names
+//   SA2_TOUCH_STYLE=S             classic (the default: flat translucent shapes, each face button
+//                                 its own colour) or adventure (the glossy look above)
+//   SA2_TOUCH_THEME=T             the adventure style's colours: sonic (the default), shadow,
+//                                 knuckles, tails, rouge, amy, eggman, metal or chao; auto is
+//                                 meant to follow the character being played, which the player
+//                                 does not know yet, so it is sonic's (parse_setting says so)
+//   SA2_TOUCH_FACE=F              four (the default: the A/B/X/Y diamond) or two: two bigger
+//                                 buttons in the diamond's place, JUMP (the A button) below right
+//                                 and ACTION (the B button) above left, and no X or Y; the group,
+//                                 its size and its place are the diamond's
 // With none of them set the overlay is exactly the one described above.
 //
 // draw() renders onto a target texture after the game's frame (the swapchain texture the
@@ -99,14 +114,22 @@ struct Place {
     bool set = false;
     float x = 0, y = 0;                      // fractions of the control area
 };
+enum class Style { Classic, Adventure };
+enum class Theme { Sonic, Shadow, Knuckles, Tails, Rouge, Amy, Eggman, Metal, Chao };
+constexpr int kThemes = 9;
 struct Settings {
     float scale = 1, opacity = 1;
     Place landscape[kGroups], portrait[kGroups];   // by Group, by the window's orientation
     sa2_input::PadOutput sends[kButtons];    // what each on-screen button sends
     bool mapped[kButtons] = {};              // false: the button's own (A sends A)
+    Style style = Style::Classic;
+    Theme theme = Theme::Sonic;              // the adventure style's colours
+    bool two_buttons = false;                // SA2_TOUCH_FACE=two: JUMP and ACTION, no X or Y
 };
 // Reads one setting, by its variable's name, into `s`: false with `why` when the value is
 // malformed (`s` is then unchanged) or the name is none of the header's.
+// A value taken may still leave a remark in `why` for the log (SA2_TOUCH_THEME=auto's); else it is
+// left empty.
 bool parse_setting(const std::string& name, const std::string& value, Settings* s, std::string* why);
 void set_settings(Overlay* o, const Settings& s);
 // The game's frame size, for where the picture is; the player passes it at each Present.
@@ -129,6 +152,8 @@ void control_centre(const Overlay* o, uint32_t w, uint32_t h, Control c, float* 
 float stick_radius(const Overlay* o, uint32_t w, uint32_t h);
 // The box a control is drawn in on a w x h target, centre (x, y) and half its width and height
 // (the stick: its base at its resting place), for what else draws over the window to keep clear of.
+// With two face buttons, A is JUMP and B is ACTION, and X and Y are not there: their box is the
+// face group's centre, of no size.
 void control_box(const Overlay* o, uint32_t w, uint32_t h, Control c, float* x, float* y, float* hw, float* hh);
 
 }  // namespace sa2_touch

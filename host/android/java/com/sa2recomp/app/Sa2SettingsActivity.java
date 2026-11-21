@@ -321,12 +321,20 @@ public class Sa2SettingsActivity extends Activity {
         Ui.Group look = group(t, false);
         slider(look, "Size", 50, 200, 10, () -> mS.touchSize, v -> mS.touchSize = v, v -> v + "%");
         slider(look, "Opacity", 0, 200, 10, () -> mS.touchOpacity, v -> mS.touchOpacity = v, v -> v + "%");
-        footnote(t, "At 0% the controls are hidden but still work.");
+        choice(look, "Style", TOUCH_STYLE_NAMES, () -> indexOf(GameSettings.TOUCH_STYLES, mS.touchStyle),
+               i -> mS.touchStyle = GameSettings.TOUCH_STYLES[i]);
+        Ui.ListRow colour = choice(look, "Colour", TOUCH_THEME_NAMES, () -> indexOf(GameSettings.TOUCH_THEMES, mS.touchTheme),
+                                   i -> mS.touchTheme = GameSettings.TOUCH_THEMES[i]);
+        mRefresh.add(() -> colour.setEnabled(GameSettings.TOUCH_STYLES[1].equals(mS.touchStyle)));
+        footnote(t, "At 0% the controls are hidden but still work. Adventure draws round, glossy buttons in the "
+                    + "colour you pick.");
 
         section(t, "Layout");
         Ui.Group layout = group(t, false);
         Ui.ListRow land = row(layout, -1, "Landscape layout", Ui.chevron(this), v -> editLayout(GameSettings.LANDSCAPE));
         Ui.ListRow port = row(layout, -1, "Portrait layout", Ui.chevron(this), v -> editLayout(GameSettings.PORTRAIT));
+        choice(layout, "Face buttons", TOUCH_FACE_NAMES, () -> indexOf(GameSettings.TOUCH_FACES, mS.touchFace),
+               i -> mS.touchFace = GameSettings.TOUCH_FACES[i]);
         Ui.ListRow map = row(layout, -1, "Touch buttons", Ui.chevron(this), v -> pickMap(true, -1));
         status(land, () -> "Move and resize the buttons");
         status(port, () -> "Move and resize the buttons");
@@ -335,6 +343,7 @@ public class Sa2SettingsActivity extends Activity {
             layout.show(land.view, !GameSettings.PORTRAIT.equals(mS.orientation));
             layout.show(port.view, !GameSettings.LANDSCAPE.equals(mS.orientation));
         });
+        footnote(t, "Jump and Action are two big buttons in place of A, B, X and Y: Jump sends A and Action sends B.");
     }
 
     private void buildController(Ui.Column p) {
@@ -611,6 +620,13 @@ public class Sa2SettingsActivity extends Activity {
         startActivity(new Intent(this, Sa2LayoutActivity.class).putExtra(Sa2LayoutActivity.EXTRA_ORIENTATION, orientation));
     }
 
+    /** The labels of GameSettings.TOUCH_STYLES, TOUCH_THEMES and TOUCH_FACES, in their order. */
+    private static final String[] TOUCH_STYLE_NAMES = {"Classic", "Adventure"};
+    private static final String[] TOUCH_THEME_NAMES = {"Sonic (blue)", "Shadow (black and red)", "Knuckles (red)",
+                                                       "Tails (orange)", "Rouge (purple)", "Amy (pink)",
+                                                       "Eggman (red-orange)", "Metal Sonic (blue-grey)",
+                                                       "Chao (light blue)"};
+    private static final String[] TOUCH_FACE_NAMES = {"A, B, X and Y", "Jump and Action"};
     private static final String[] TOUCH_NAMES = {"A button", "B button", "X button", "Y button", "START button",
                                                  "LT button", "RT button"};
     private static final String[] PAD_NAMES = {"Bottom face button (A)", "Right face button (B)",

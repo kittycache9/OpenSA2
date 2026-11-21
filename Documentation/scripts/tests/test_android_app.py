@@ -485,3 +485,67 @@ def test_player_two_goes_to_the_player_unless_the_controllers_are_together(pad_j
     assert pad_java("env", "", "ID:046d:c216") == "SA2_PAD_P2=ID:046d:c216"
     assert pad_java("env", "NAME:Pad A", "NAME:Pad B") == "SA2_PAD_P1=NAME:Pad A SA2_PAD_P2=NAME:Pad B"
     assert pad_java("env", "ALL", "NAME:Pad B") == "SA2_PAD_P1=ALL"
+
+
+TOUCH_LOOK_JAVA = r"""
+package com.sa2recomp.app;
+public class TouchLookDriver {
+    public static void main(String[] a) {
+        GameSettings s = new GameSettings();
+        if (a.length > 0) s.touchStyle = a[0];
+        if (a.length > 1) s.touchTheme = a[1];
+        if (a.length > 2) s.touchFace = a[2];
+        System.out.print(String.join(" ", s.sessionSettings(2340, 1080)));
+        GameSettings d = new GameSettings();
+        System.out.print("|" + String.join(",", GameSettings.TOUCH_STYLES) + "|" + String.join(",", GameSettings.TOUCH_THEMES)
+                         + "|" + String.join(",", GameSettings.TOUCH_FACES) + "|" + d.touchStyle + "," + d.touchTheme
+                         + "," + d.touchFace);
+    }
+}
+"""
+
+
+@pytest.fixture(scope="module")
+def touch_look_java(tmp_path_factory):
+    run = java_driver(tmp_path_factory, "TouchLookDriver", TOUCH_LOOK_JAVA)
+    return lambda *args: run(*args).split("|")
+
+
+@pytest.mark.parametrize("stored, settings", [
+    ((), ""),                                                        # the defaults send nothing
+    (("classic", "sonic", "four"), ""),
+    (("adventure",), "SA2_TOUCH_STYLE=adventure"),                   # sonic is the overlay's own colour
+    (("adventure", "knuckles"), "SA2_TOUCH_STYLE=adventure SA2_TOUCH_THEME=knuckles"),
+    (("adventure", "chao", "two"), "SA2_TOUCH_STYLE=adventure SA2_TOUCH_THEME=chao SA2_TOUCH_FACE=two"),
+    (("classic", "knuckles"), ""),                                   # a colour only the adventure style has
+    (("classic", "sonic", "two"), "SA2_TOUCH_FACE=two"),             # two face buttons in either style
+    (("modern", "auto", "three"), ""),                               # values no build offers: the defaults
+    (("adventure", "silver"), "SA2_TOUCH_STYLE=adventure"),
+])
+def test_the_touch_look_goes_to_the_player_only_when_not_the_default(touch_look_java, stored, settings):
+    got, styles, themes, faces, defaults = touch_look_java(*stored)
+    assert got == settings
+    assert (styles, faces, defaults) == ("classic,adventure", "four,two", "classic,sonic,four")
+    assert themes == "sonic,shadow,knuckles,tails,rouge,amy,eggman,metal,chao"
+
+
+def test_the_touch_look_matches_the_overlays_names():
+    """Every style, theme and face the app offers is one the overlay takes (touch_overlay.cpp
+    parse_setting), and the settings screen labels each list in its order."""
+    overlay = (ROOT / "host/player/touch_overlay.cpp").read_text()
+    themes = re.search(r"kThemeNames\[kThemes\] = \{([^}]*)\}", overlay).group(1)
+    assert re.findall(r'"(\w+)"', themes) == ["sonic", "shadow", "knuckles", "tails", "rouge", "amy", "eggman",
+                                              "metal", "chao"]
+    for value in ("classic", "adventure", "four", "two"):
+        assert f'value == "{value}"' in overlay
+    java = (ROOT / "host/android/java/com/sa2recomp/app/Sa2SettingsActivity.java").read_text()
+    assert 'TOUCH_STYLE_NAMES = {"Classic", "Adventure"}' in java
+    assert 'TOUCH_FACE_NAMES = {"A, B, X and Y", "Jump and Action"}' in java
+    names = re.search(r"TOUCH_THEME_NAMES = \{([^}]*)\}", java).group(1)
+    assert [n.split(" (")[0] for n in re.findall(r'"([^"]+)"', names)] == [
+        "Sonic", "Shadow", "Knuckles", "Tails", "Rouge", "Amy", "Eggman", "Metal Sonic", "Chao"]
+    assert 'choice(look, "Style", TOUCH_STYLE_NAMES,' in java and 'choice(look, "Colour", TOUCH_THEME_NAMES,' in java
+    assert 'choice(layout, "Face buttons", TOUCH_FACE_NAMES,' in java
+    # The native session passes every SA2_TOUCH_* setting to the player as it is.
+    native = (ROOT / "host/android/native/sa2_android_session.cpp").read_text()
+    assert 'k.compare(0, 10, "SA2_TOUCH_") == 0' in native
