@@ -629,7 +629,8 @@ public class Sa2SettingsActivity extends Activity {
 
     /** The labels of GameSettings.TOUCH_STYLES, TOUCH_THEMES and TOUCH_FACES, in their order. */
     private static final String[] TOUCH_STYLE_NAMES = {"Classic", "Adventure"};
-    private static final String[] TOUCH_THEME_NAMES = {"Sonic (blue)", "Shadow (black and red)", "Knuckles (red)",
+    private static final String[] TOUCH_THEME_NAMES = {"Auto (follows the character)", "Sonic (blue)",
+                                                       "Shadow (black and red)", "Knuckles (red)",
                                                        "Tails (orange)", "Rouge (purple)", "Amy (pink)",
                                                        "Eggman (red-orange)", "Metal Sonic (blue-grey)",
                                                        "Chao (light blue)"};

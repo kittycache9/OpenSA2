@@ -62,7 +62,10 @@ watch that stops checking, or checks less than it says, does not pass.
 Anything else is a problem, and a problem is the exit status: this reader is the
 instrument the recorder is held to, so it never skips a check quietly. What it
 cannot parse it stops at, and says where. A NOTE record is the writer saying it left
-something out; the reader counts them and the runner refuses a stream with any.
+something out; the reader counts them and the runner refuses a stream with any. A state
+note (text beginning "state ": the game's state for the player's touch controls, written
+in live play alone, host/sa2_stream.h) leaves nothing out, and is counted apart as
+"state_records".
 
 Usage:
   .venv/bin/python tools/s5/stream_dump.py STREAM               # summary
@@ -1545,6 +1548,7 @@ def scan(path: Path, *, want_range: tuple[int, int] | None = None,
             picked: list[dict] = []
             head_calls: list[tuple] = []
             n_notes = 0
+            n_state = 0
             seq_expect = 0
             records = 0
             ended_at = None
@@ -1627,6 +1631,8 @@ def scan(path: Path, *, want_range: tuple[int, int] | None = None,
                                    "frames": rec["frames"], "polls": rec["polls"]})
                     content.frame()
                     audio.frame()
+                elif kind == NOTE and rec["text"].startswith("state "):
+                    n_state += 1
                 elif kind == NOTE:
                     n_notes += 1
                     if len(notes) < keep_notes:
@@ -1691,6 +1697,7 @@ def scan(path: Path, *, want_range: tuple[int, int] | None = None,
         "last_frame": frames[-1] if frames else None,
         "notes": notes,
         "note_records": n_notes,
+        "state_records": n_state,
         "content_checked": content.checked,
         "objects_introduced": len(content.known),
         "locks_open_at_end": sum(len(v) for v in content.locks.values()),

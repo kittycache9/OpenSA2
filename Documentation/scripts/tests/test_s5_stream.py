@@ -1264,6 +1264,32 @@ def test_the_recorder_notes_what_it_leaves_out(build, tmp_path):
         assert SD.compare_counts(s, counts) == []
 
 
+def test_the_state_note_follows_the_first_frame_and_leaves_the_rest_alone(build, tmp_path):
+    """SA2_REC_STATE=1 (live play's): the stream is the one without it with one state note
+    after its first FRAME (the harness's guest holds none of the five values, so each reads -1,
+    and none changes after), every record after it one seq on; the guest sees the same; the
+    note is no note class and no NOTE the reader counts, and the counts file has it as
+    stream_records' "state". Unset, the counts file has no "state" at all."""
+    off = harness(build("rec"), tmp_path, "off")
+    on = harness(build("rec"), tmp_path, "on", env_extra={"SA2_REC_STATE": "1"})
+    assert guest_view(on) == guest_view(off)
+    a, b = SD.scan(off["trace"], want_range=(0, 1 << 30)), SD.scan(on["trace"], want_range=(0, 1 << 30))
+    first_frame = next(r["seq"] for r in a["range"] if r["kind"] == "frame")
+    states = [r for r in b["range"] if r["kind"] == "note" and r["text"].startswith("state ")]
+    assert [(r["seq"], r["text"]) for r in states] == [
+        (first_frame + 1, "state mode=-1 level=-1 character=-1 two=-1 alt=-1")]
+    strip = lambda r: {k: v for k, v in r.items() if k not in ("seq", "offset")}   # both move by the note
+    assert [strip(r) for r in b["range"] if r not in states] == [strip(r) for r in a["range"]]
+    assert [r["seq"] for r in b["range"]] == list(range(len(b["range"])))
+    assert (b["state_records"], a["state_records"], b["note_records"]) == (1, 0, a["note_records"])
+    assert b["problems"] == a["problems"]
+    c_on, c_off = json.loads(on["counts"].read_text()), json.loads(off["counts"].read_text())
+    assert c_on["stream_records"]["state"] == 1 and "state" not in c_off["stream_records"]
+    assert c_on["notes"] == c_off["notes"]
+    assert c_on["stream_records"]["note"] == c_off["stream_records"]["note"]
+    assert SD.compare_counts(b, c_on) == []
+
+
 def unlocked_levels(trace: Path) -> list[int]:
     """The level each texture UnlockRect's LOCK names, in order."""
     recs = SD.scan(trace, want_range=(0, 1 << 30))["range"]

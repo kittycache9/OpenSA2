@@ -67,11 +67,10 @@ final class GameSettings {
     static final String[] TOUCH_BUTTONS = {"A", "B", "X", "Y", "START", "LT", "RT"};
     /** The touch overlay's looks, colour themes and face buttons, as SA2_TOUCH_STYLE, SA2_TOUCH_THEME and
      * SA2_TOUCH_FACE name them (host/player/touch_overlay.h), each list's first the overlay's default. The
-     * themes are the adventure style's; the overlay takes "auto" too, but cannot follow the character
-     * yet, so it is not offered. */
+     * themes are the adventure style's; "auto" follows the character being played. */
     static final String[] TOUCH_STYLES = {"classic", "adventure"};
-    static final String[] TOUCH_THEMES = {"sonic", "shadow", "knuckles", "tails", "rouge", "amy", "eggman", "metal",
-                                          "chao"};
+    static final String[] TOUCH_THEMES = {"auto", "sonic", "shadow", "knuckles", "tails", "rouge", "amy", "eggman",
+                                          "metal", "chao"};
     static final String[] TOUCH_FACES = {"four", "two"};
     static final String[] PAD_BUTTONS = {"SOUTH", "EAST", "WEST", "NORTH", "LB", "RB", "BACK", "START", "LS", "RS",
                                          "UP", "DOWN", "LEFT", "RIGHT"};
@@ -329,7 +328,7 @@ final class GameSettings {
     int pictureY = 25;                         // upright, the picture's centre, percent of the height down (0 to 50)
     String layoutLandscape = "", layoutPortrait = "";  // SA2_TOUCH_LAYOUT, SA2_TOUCH_LAYOUT_PORTRAIT; "" its own
     String touchMap = "", padMap = "";         // SA2_TOUCH_MAP and SA2_PAD_MAP, only what differs
-    String touchStyle = "classic", touchTheme = "sonic", touchFace = "four";   // TOUCH_STYLES, TOUCH_THEMES, TOUCH_FACES
+    String touchStyle = "classic", touchTheme = "auto", touchFace = "four";   // TOUCH_STYLES, TOUCH_THEMES, TOUCH_FACES
     String padFirst = "", padFirstName = "";   // SA2_PAD_P1 ("" automatic), and the controller's name for the screen
     String padSecond = "", padSecondName = ""; // SA2_PAD_P2, the same for player 2 (never "ALL")
     final Set<String> tweaksOn = new HashSet<>();  // the TWEAKS names turned on; none by default

@@ -188,6 +188,21 @@
  *                          2026-10-12). The counts file's "audio" "store_hash" says how many
  *                          closed and how many went without. Unset, 1 or anything else, every
  *                          such Unlock carries it: replays, the selftest, every receipt's run.
+ *   SA2_REC_STATE=1        after each FRAME, when what it reads of the game's state has changed
+ *                          since the last (or at the first FRAME), a state note: a SA2S_NOTE
+ *                          whose text is "state mode=M level=L character=C two=T alt=A",
+ *                          GameMode (the int32 at 0x0174B040, which GameModeHandler 0x00434160
+ *                          switches on), CurrentLevel (the int16 at 0x01934B70), player one's
+ *                          CurrentCharacter (the int32 at 0x01934B80, which LoadCharacters
+ *                          0x0043D630 loads by), TwoPlayerMode (the byte at 0x0174AFDE) and
+ *                          player one's costume byte (0x0174B015, which each character's loader
+ *                          reads in a two-player game), each -1 when it does not read. The
+ *                          player's touch controls follow it (host/player/touch_overlay.h, "The
+ *                          game's state"). It says nothing was left out (host/sa2_stream.h), so
+ *                          it is no note class: the counts file has their number as
+ *                          stream_records' "state", apart from "note". A live session's play
+ *                          only (host/launch, host/android); unset or any other value, none is
+ *                          written, and the stream is what it was.
  *   SA2_REC_PACE_FD=<n>    the read end of a live session's pace pipe, inherited as descriptor
  *                          n (host/launch/sa2_relay.h, "Pace"): after each frame's records are
  *                          written, the recorder reads one byte from it, so the game waits
@@ -681,6 +696,18 @@ static const char *const NOTE_CLASSES[N_ALL] = {
 };
 static uint64_t g_note_n[N_ALL];
 
+/* The game's state (SA2_REC_STATE=1, above): the values last said, and how many state notes. */
+#define ST_GAME_MODE   0x0174B040u   /* GameMode, int32 */
+#define ST_LEVEL       0x01934B70u   /* CurrentLevel, int16 */
+#define ST_CHARACTER   0x01934B80u   /* CurrentCharacter (player one), int32 */
+#define ST_TWO_PLAYER  0x0174AFDEu   /* TwoPlayerMode, byte */
+#define ST_COSTUME     0x0174B015u   /* player one's costume, byte (+1 is player two's) */
+#define ST_FIELDS      5
+#define REC_UNCOUNTED  8u            /* a kind past g_kind_n: wr_commit counts it nowhere */
+static int      g_state_on, g_state_said;
+static int32_t  g_state_last[ST_FIELDS];
+static uint64_t g_state_n;
+
 /* Audio (SA2_REC_AUDIO=1): each thunk's native and op (0: not recorded), and the
  * counts by op. Host memory, touched only by the thread holding the guest lock. */
 #define AU_DS_THUNKS (SA2_DS_MAX_TYPES * SA2_DS_MAX_SLOTS)
@@ -893,7 +920,9 @@ static void wr_commit(uint32_t kind, uint32_t off) {
     if (kind < 8u) { g_kind_n[kind]++; g_kind_bytes[kind] += off; }
 }
 
-static void emit_note_text(const char *text) {
+/* A SA2S_NOTE of `text`, counted as `count_as` (SA2S_NOTE, or REC_UNCOUNTED for a state
+ * note, which g_state_n counts). */
+static void emit_note_as(const char *text, uint32_t count_as) {
     const uint32_t len = (uint32_t)strlen(text);
     if (!wr_reserve(16u + pad4(len))) return;
     uint8_t *p = g_buf + g_len;
@@ -905,7 +934,34 @@ static void emit_note_text(const char *text) {
     memcpy(p + off, text, len);
     off += len;
     while (off & 3u) p[off++] = 0;
-    wr_commit(SA2S_NOTE, off);
+    wr_commit(count_as, off);
+}
+
+static void emit_note_text(const char *text) { emit_note_as(text, SA2S_NOTE); }
+
+/* SA2_REC_STATE: the state note, when a value has changed since the last one said. */
+static void state_check(void) {
+    int32_t mode = 0, ch = 0;
+    int16_t level = 0;
+    uint8_t two = 0, costume = 0;
+    int32_t v[ST_FIELDS];
+    v[0] = sa2_peek(ST_GAME_MODE, 4, &mode) == SA2_OK ? mode : -1;
+    v[1] = sa2_peek(ST_LEVEL, 2, &level) == SA2_OK ? (int32_t)level : -1;
+    v[2] = sa2_peek(ST_CHARACTER, 4, &ch) == SA2_OK ? ch : -1;
+    v[3] = sa2_peek(ST_TWO_PLAYER, 1, &two) == SA2_OK ? (int32_t)two : -1;
+    v[4] = sa2_peek(ST_COSTUME, 1, &costume) == SA2_OK ? (int32_t)costume : -1;
+    int same = g_state_said;
+    for (int i = 0; i < ST_FIELDS; i++) {
+        if (v[i] != g_state_last[i]) same = 0;
+        g_state_last[i] = v[i];
+    }
+    if (same) return;
+    g_state_said = 1;
+    char text[128];
+    snprintf(text, sizeof text, "state mode=%d level=%d character=%d two=%d alt=%d", (int)v[0], (int)v[1],
+             (int)v[2], (int)v[3], (int)v[4]);
+    emit_note_as(text, REC_UNCOUNTED);
+    g_state_n++;
 }
 
 /* A note of class `cls`: the first REC_NOTES_PER_CLASS of each class are written,
@@ -957,6 +1013,7 @@ static void emit_frame(void) {
     put32(p, &off, ws.polls);
     wr_commit(SA2S_FRAME, off);
     g_frames++;
+    if (g_state_on) state_check();
 #ifndef REC_BREAK_NOWATCH
     if (g_nwatch && g_frames % REC_WATCH_EVERY == 0u) watch_check();
 #else
@@ -1843,6 +1900,8 @@ static void rec_init(void) {
     g_counts_path = getenv("SA2_REC_COUNTS");
     const char *aw = getenv("SA2_REC_AUDIO_WATCH");
     g_au_watch = !(aw && !strcmp(aw, "0"));
+    const char *sv = getenv("SA2_REC_STATE");
+    g_state_on = sv && !strcmp(sv, "1");
     const char *pf = getenv("SA2_REC_PACE_FD");
     if (pf && *pf) {                                /* decimal digits only, 0 to 65535 */
         int n = 0;
@@ -2006,6 +2065,7 @@ static void write_counts(void) {
             (unsigned long long)g_kind_n[SA2S_FRAME], (unsigned long long)g_kind_n[SA2S_NOTE],
             (unsigned long long)g_kind_n[SA2S_END]);
     if (g_audio_on) fprintf(f, ", \"audio\": %llu", (unsigned long long)g_kind_n[SA2S_AUDIO]);
+    if (g_state_on) fprintf(f, ", \"state\": %llu", (unsigned long long)g_state_n);
     fprintf(f, "},\n");
     fprintf(f, " \"stream_blobs\": {");
     const uint32_t last_role = g_audio_on ? SA2S_BLOB_HASH : SA2S_BLOB_LOCK;

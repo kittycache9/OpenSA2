@@ -26,15 +26,24 @@ FIFO this test reads, so each record the game would read is checked byte for byt
   * player two: SA2_PAD_P2 naming the first pad gives it slot 1 and leaves slot 0 for the next;
   * settings: the same script with SA2_PAD_MAP (a pad's SOUTH and EAST swapped), SA2_TOUCH_MAP
     (the overlay's A sends X) and the overlay bigger with its stick and diamond swapped
-    (SA2_TOUCH_SCALE, SA2_TOUCH_LAYOUT), in the adventure style (SA2_TOUCH_STYLE, SA2_TOUCH_THEME=auto,
-    which the log says is sonic's colours for now), sends the same records with only those buttons
-    changed: the script's touches find the controls where the settings put them.
+    (SA2_TOUCH_SCALE, SA2_TOUCH_LAYOUT), in the adventure style (SA2_TOUCH_STYLE, SA2_TOUCH_THEME=auto),
+    sends the same records with only those buttons changed: the script's touches find the controls
+    where the settings put them; with no SA2_TOUCH_ART_ROOT the log says the overlay draws its own
+    shapes;
+  * the game's state: the stream with a state note added after its first FRAME (a stage, as
+    Knuckles: host/sa2_stream.h) and SA2_TOUCH_ART_ROOT naming a PAK this test writes (its
+    pictures drawn by code, no game file), in the adventure style: the player loads that art,
+    says the context and colours, counts the note as "state" and not as a note, and a touch on X,
+    which a stage does not use, sends nothing while A still does.
 
 The window opens for a few seconds (the interactive mode refuses a hidden one). The player is
 built from this tree by host/d3d9gpu/build.sh (about a minute and a half), unless SA2_PLAYER_GPU
 names one already built. test_the_overlay_alone needs neither the player nor its window: it
 builds host/player/test_touch_overlay.cpp (the overlay's own pad and drawing, on a Vulkan device)
-against the install's SDL3 (SA2_S5_INSTALL, else private/s5-tools/install) and runs it:
+against the install's SDL3 (SA2_S5_INSTALL, else private/s5-tools/install) and runs it;
+test_the_installs_menu_art_draws runs it again with this machine's game install
+(SA2_TOUCH_TEST_INSTALL, else private/install), and is skipped without one: its pictures go to
+pytest's temporary folder only.
 
   .venv/bin/python -m pytest Documentation/scripts/tests/test_player_pads_touch.py
 """
@@ -133,8 +142,8 @@ EXPECTED = [
 SETTINGS = {"SA2_PAD_MAP": "SOUTH=B,EAST=A", "SA2_TOUCH_MAP": "A=X", "SA2_TOUCH_SCALE": "1.5",
             "SA2_TOUCH_LAYOUT": "STICK=0.8,0.65;FACE=0.2,0.6", "SA2_TOUCH_STYLE": "adventure",
             "SA2_TOUCH_THEME": "auto"}
-# What the log adds after a setting taken with a remark (touch_overlay.h parse_setting).
-REMARKS = {"SA2_TOUCH_THEME": " (auto: the character being played is not known to the player yet, so sonic's colours)"}
+# What the log adds after a setting taken with a remark (touch_overlay.h parse_setting): none now.
+REMARKS: dict[str, str] = {}
 # EXPECTED with pad 0's SOUTH (A) sending B, pad 2's EAST (B) sending A, and the overlay's A X.
 EXPECTED_SETTINGS = [
     (OFF, OFF, OFF, OFF),
@@ -256,6 +265,67 @@ def build_synth(out: Path) -> Path:
     return stream
 
 
+STATE_NOTE = "state mode=5 level=13 character=4 two=0 alt=0"     # a stage, as Knuckles
+STATE_SCRIPT = """\
+100 touch-down 1 @X
+200 touch-up 1
+300 touch-down 2 @A
+400 touch-up 2
+"""
+
+
+def with_state_note(stream: Path, out: Path, text: str = STATE_NOTE) -> Path:
+    """`stream` with a state note (host/sa2_stream.h) after its first FRAME, the records after it
+    numbered on by one, as the recorder writes one (host/sa2_present_rec.c, SA2_REC_STATE)."""
+    data = stream.read_bytes()
+    hb = struct.unpack_from("<I", data, 12)[0]
+    out_b, pos, added, seq_shift = bytearray(data[:hb]), hb, False, 0
+    while pos + 12 <= len(data):
+        kind, size, seq = struct.unpack_from("<III", data, pos)
+        rec = bytearray(data[pos:pos + size])
+        struct.pack_into("<I", rec, 8, seq + seq_shift)
+        out_b += rec
+        pos += size
+        if kind == 3 and not added:                      # SA2S_FRAME
+            body = text.encode()
+            body += b"\0" * (-len(body) % 4)
+            out_b += struct.pack("<IIII", 4, 16 + len(body), seq + 1, len(text.encode())) + body
+            added, seq_shift = True, 1
+    assert added and pos == len(data)
+    path = out / "synth-state.sa2d3d9"
+    path.write_bytes(bytes(out_b))
+    return path
+
+
+def dds(w: int, h: int, pixel) -> bytes:
+    """An uncompressed A8R8G8B8 DDS whose pixel (x, y) is pixel(x, y) = (b, g, r, a)."""
+    head = [124, 0x100F, h, w, w * 4, 0, 0] + [0] * 11 + [32, 0x41, 0, 32, 0x00FF0000, 0x0000FF00, 0x000000FF,
+                                                       0xFF000000, 0x1000, 0, 0, 0, 0]
+    return b"DDS " + struct.pack("<31I", *head) + b"".join(bytes(pixel(x, y)) for y in range(h) for x in range(w))
+
+
+def write_test_art(root: Path) -> None:
+    """A newMenu.pak under root (touch_overlay.cpp read_pak's layout) whose four members are drawn
+    here: a blue disc and a darker one, a red quarter ring, two blue bars. No game file."""
+    def disc(b, g, r):
+        return dds(128, 128, lambda x, y: (b, g, r, 255) if (x - 63.5) ** 2 + (y - 63.5) ** 2 < 62 ** 2 else (0, 0, 0, 0))
+    arc = dds(128, 128, lambda x, y: (0, 0, 255, 255) if x < 72 and y < 72 and
+              abs(((x + 0.5 - 72) ** 2 + (y + 0.5 - 72) ** 2) ** 0.5 - 66) < 5 else (0, 0, 0, 0))
+    bars = dds(256, 128, lambda x, y: (230, 150, 20, 255) if y < 41 else (160, 80, 10, 255) if 43 <= y < 84 else (0, 0, 0, 0))
+    members = [("mainmenu_button_maru.dds", disc(230, 90, 30)), ("mainmenu_button_maru_i.dds", disc(140, 45, 15)),
+               ("mainmenu_csol.dds", arc), ("mainmenu_button_sikaku.dds", bars)]
+    b = bytearray(b"\x01pak" + bytes(0x39 - 4)) + struct.pack("<I", len(members))
+    for name, data in members:
+        for text in ("c:\\test\\newmenu\\" + name, "newmenu\\" + name):
+            b += struct.pack("<I", len(text)) + text.encode()
+        b += struct.pack("<II", len(data), len(data))
+    for _, data in members:
+        b += data
+    pak = root / "resource/gd_PC/PRS/newMenu.pak"
+    pak.parent.mkdir(parents=True)
+    pak.write_bytes(bytes(b))
+
+
 def build_player(out: Path) -> Path:
     """SA2_PLAYER_GPU, or the second host's player built from this tree into `out`."""
     if os.environ.get("SA2_PLAYER_GPU"):
@@ -352,7 +422,10 @@ def runs(tmp_path_factory):
     t = tmp_path_factory.mktemp("pads_touch")
     player = build_player(t / "bin")
     stream = build_synth(t)
+    write_test_art(t / "art")
+    state = {"SA2_TOUCH_STYLE": "adventure", "SA2_TOUCH_ART_ROOT": str(t / "art")}
     return {"input": play(player, stream, t / "input", SCRIPT), "plain": play(player, stream, t / "plain", None),
+            "state": play(player, with_state_note(stream, t), t / "state", STATE_SCRIPT, state),
             "settings": play(player, stream, t / "settings", SCRIPT, SETTINGS),
             "p1_name": play(player, stream, t / "p1_name", P1_SCRIPT, {"SA2_PAD_P1": "NAME:SA2 synthetic pad 1"}),
             "p1_id": play(player, stream, t / "p1_id", P1_SCRIPT, {"SA2_PAD_P1": "ID:5341:0101"}),
@@ -361,26 +434,74 @@ def runs(tmp_path_factory):
             "p1_none": play(player, stream, t / "p1_none", P1_SCRIPT, {"SA2_PAD_P1": "NAME:no such pad"})}
 
 
-def test_the_overlay_alone(tmp_path):
-    """The overlay without the player: its pad from finger events, with the stick's origin
-    fixed where its finger landed (past the radius a full push in the finger's direction, the
-    origin unmoved; a new touch re-centres), and its drawing (the base where the finger landed,
-    the knob at the rim) on a Vulkan device with no window, in the classic and adventure styles."""
+@pytest.fixture(scope="module")
+def overlay_test(tmp_path_factory):
+    """host/player/test_touch_overlay.cpp built against the install's SDL3: run(out, *args)."""
     if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
         pytest.fail("no display: SDL's video subsystem, which the test's device needs, finds none")
     install = Path(os.environ.get("SA2_S5_INSTALL") or ROOT / "private/s5-tools/install").resolve()
-    here, exe = ROOT / "host/player", tmp_path / "test_touch_overlay"
+    here, exe = ROOT / "host/player", tmp_path_factory.mktemp("overlay") / "test_touch_overlay"
     subprocess.run([GXX, "-std=c++17", "-O2", "-Wall", "-Wextra", "-Wno-unused-parameter",
                     f"-I{install / 'include'}", "-o", str(exe), str(here / "test_touch_overlay.cpp"),
                     str(here / "touch_overlay.cpp"), str(here / "texcodec.cpp"), f"-L{install / 'lib'}",
                     "-Wl,--disable-new-dtags", f"-Wl,-rpath,{install / 'lib'}", "-lSDL3", "-lpng"],
                    check=True, capture_output=True)
     env = dict(os.environ, VK_LOADER_LAYERS_DISABLE="~implicit~", SDL_AUDIO_DRIVER="dummy")
-    r = subprocess.run([str(exe), str(tmp_path)], capture_output=True, text=True, timeout=120, env=env)
+    return lambda *args: subprocess.run([str(exe), *map(str, args)], capture_output=True, text=True, timeout=120,
+                                        env=env)
+
+
+def test_the_overlay_alone(overlay_test, tmp_path):
+    """The overlay without the player: its pad from finger events, with the stick's origin
+    fixed where its finger landed (past the radius a full push in the finger's direction, the
+    origin unmoved; a new touch re-centres), and its drawing (the base where the finger landed,
+    the knob at the rim) on a Vulkan device with no window, in the classic and adventure styles;
+    the game's state (the note, its context and theme, hidden controls sending nothing), and the
+    game's art from a PAK the test draws itself."""
+    r = overlay_test(tmp_path)
     assert r.returncode == 0 and r.stdout.splitlines()[-1] == "TOUCH_OVERLAY_OK", r.stdout + r.stderr
     assert "pad mapping: ok" in r.stdout and (tmp_path / "overlay.png").is_file()
-    for name in ("overlay-adventure.png", "overlay-adventure-knuckles.png", "overlay-adventure-two.png"):
+    assert "the game's state: ok" in r.stdout
+    for name in ("overlay-adventure.png", "overlay-adventure-knuckles.png", "overlay-adventure-two.png",
+                 "overlay-art.png", "overlay-art-knuckles.png"):
         assert (tmp_path / name).is_file(), name
+
+
+def test_the_installs_menu_art_draws(overlay_test, tmp_path):
+    """This machine's own game install, when it has one: its newMenu.pak parses and draws, the
+    button blue as sonic and turned red as knuckles. Local only; the pictures stay in pytest's
+    temporary folder (they hold the game's art)."""
+    install = Path(os.environ.get("SA2_TOUCH_TEST_INSTALL") or ROOT / "private/install")
+    if not (install / "resource").is_dir():
+        pytest.skip(f"no game install at {install}")
+    r = overlay_test(tmp_path, install)
+    assert r.returncode == 0 and "real art: loaded" in r.stdout, r.stdout + r.stderr
+    assert (tmp_path / "overlay-real-sonic.png").is_file() and (tmp_path / "overlay-real-knuckles.png").is_file()
+
+
+def test_the_game_state_note_drives_the_overlay(runs):
+    """A state note (a stage, as Knuckles) in the stream: counted as state, not as a note; the
+    player says the context and colours; the test's art loaded; X, which a stage does not use,
+    sends nothing, and A sends A."""
+    r, plain = runs["state"], runs["plain"]
+    assert r["exit"] == 0, (r["out"] / "player.out").read_text()[-3000:]
+    rep = r["report"]
+    assert rep["synthetic_input"]["failures"] == 0
+    assert rep["records"]["state"] == 1 and rep["records"]["note"] == plain["report"]["records"]["note"]
+    assert "state" not in plain["report"]["records"]
+    assert rep["records"]["seq_gaps"] == 0 and rep["stream_problems"]["count"] == 0
+    said = (r["out"] / "player.out").read_text()
+    assert "pads: the touch controls draw the game's menu art (resource/gd_PC/PRS/newMenu.pak)\n" in said, said[-3000:]
+    assert f"touch: stage, knuckles's colours ({STATE_NOTE})\n" in said, said[-3000:]
+    buttons = {slots[0][1] for _, slots in r["records"] if slots[0][0]}
+    assert 0x1000 in buttons and not any(b & 0x4000 for b in buttons), sorted(buttons)
+    assert rep["host_pads"]["touch"]["draw_failures"] == 0 and rep["host_pads"]["touch"]["error"] is None
+
+
+def test_without_art_the_log_says_why(runs):
+    said = (runs["settings"]["out"] / "player.out").read_text()
+    assert ("pads: the touch controls draw their own shapes, not the game's art: no install named "
+            "(SA2_TOUCH_ART_ROOT)\n") in said, said[-3000:]
 
 
 def test_the_run_and_its_script(runs):

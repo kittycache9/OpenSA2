@@ -1581,8 +1581,10 @@ int launch(int argc, char** argv) {
         // (player.cpp, kLiveStoreCheckEvery), and the others skip a byte-at-a-time hash of the
         // whole store on the guest's serialized path. A game.env line sets it otherwise; the
         // selftest and the replays hash every one.
+        // And it writes the game's state for the player's touch controls (SA2_REC_STATE=1: a state
+        // note when the game's mode, level or character changes, host/sa2_stream.h).
         for (const auto& [k, v] : {std::pair<const char*, const char*>{"SA2_REC_AUDIO_WATCH", "0"},
-                                   {"SA2_REC_STORE_HASH_EVERY", "64"}})
+                                   {"SA2_REC_STORE_HASH_EVERY", "64"}, {"SA2_REC_STATE", "1"}})
             if (std::none_of(genv.kv.begin(), genv.kv.end(), [k = k](const auto& e) { return e.first == k; }))
                 genv.set(k, v);
     }
@@ -1731,6 +1733,7 @@ int launch(int argc, char** argv) {
     penv.set("VK_LOADER_LAYERS_DISABLE", "~implicit~");
     if (!by_path) penv.set("SA2_DXVK_D3D9", dxvk_lib);
     penv.set("SA2_PLAY_OUT", session + "/play");
+    penv.set("SA2_TOUCH_ART_ROOT", cfg.read_root);   // the game's menu art for the touch controls
     if (std::string(host->id) == "sdl3-gpu") penv.set("SA2_D3D9GPU_REPORT", session + "/d3d9gpu.runrec");
     // The host's tweaks (the header, "Tweaks"), and the game's replay settings beside them, so the
     // player's off() reaches the game's verdict (it reads these two nowhere else).
