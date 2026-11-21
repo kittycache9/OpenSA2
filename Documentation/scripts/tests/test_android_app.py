@@ -342,6 +342,57 @@ def test_the_settings_screen_offers_the_four_choices_in_order():
     assert 'env_find(genv, "SA2_ADPF_TARGET_US")' in native and "us >= 1000 && us <= 1000000" in native
 
 
+# ---------------------------------------------------------------- the text language setting
+
+# GameSettings.sessionSettings for a stored "text_language", on a 2340x1080 screen with every other
+# setting at its default (which ask for nothing).
+TEXT_LANGUAGE_JAVA = r"""
+package com.sa2recomp.app;
+public class TextLanguageDriver {
+    public static void main(String[] a) {
+        GameSettings s = new GameSettings();
+        if (a.length > 0) s.textLanguage = a[0];
+        System.out.print(String.join(" ", s.sessionSettings(2340, 1080)));
+        System.out.print("|" + String.join(",", GameSettings.TEXT_LANGUAGES) + "|" + new GameSettings().textLanguage);
+    }
+}
+"""
+
+
+@pytest.fixture(scope="module")
+def text_language_java(tmp_path_factory):
+    run = java_driver(tmp_path_factory, "TextLanguageDriver", TEXT_LANGUAGE_JAVA)
+    return lambda *args: run(*args).split("|")
+
+
+@pytest.mark.parametrize("stored, settings", [
+    (None, ""),
+    ("", ""),
+    ("de", "SA2_TEXT_LANGUAGE=de"),
+    ("es", "SA2_TEXT_LANGUAGE=es"),
+    ("fr", "SA2_TEXT_LANGUAGE=fr"),
+    ("it", "SA2_TEXT_LANGUAGE=it"),
+    ("ja", "SA2_TEXT_LANGUAGE=ja"),
+])
+def test_the_text_language_setting_sends_it_only_when_chosen(text_language_java, stored, settings):
+    got, choices, default = text_language_java(*([stored] if stored is not None else []))
+    assert got == settings
+    assert (choices, default) == (",de,es,fr,it,ja", "")
+
+
+def test_the_settings_screen_offers_the_six_text_languages_and_the_game_gets_the_setting():
+    java = (ROOT / "host/android/java/com/sa2recomp/app/Sa2SettingsActivity.java").read_text(encoding="utf-8")
+    assert ('choice(lang, "Text language", new String[] {"English", "Deutsch", "Español", "Français", '
+            '"Italiano", "日本語"},') in java
+    assert "() -> indexOf(GameSettings.TEXT_LANGUAGES, mS.textLanguage)," in java
+    assert "Voices can be English or Japanese: change them in the game's Options menu." in java
+    # The native session gives SA2_TEXT_LANGUAGE to the game: it is none of the player's settings.
+    native = (ROOT / "host/android/native/sa2_android_session.cpp").read_text()
+    body = native[native.index("bool player_setting("):]
+    body = body[:body.index("\n}\n")]
+    assert "SA2_TEXT_LANGUAGE" not in body and '"SA2_TEXT_' not in body and "SA2_PAD_P1" in body
+
+
 def test_the_game_starts_by_itself_only_when_the_player_turned_that_on():
     """Auto launch is off by default and is a stored setting, never a session setting: opening the
     app, and an install finishing, start the game only with GameSettings.autoPlay on."""

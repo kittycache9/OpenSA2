@@ -315,6 +315,13 @@ public class Sa2SettingsActivity extends Activity {
                () -> indexOf(GameSettings.FRAMESKIPS, mS.frameskip), i -> mS.frameskip = GameSettings.FRAMESKIPS[i]);
         footnote(d, "Experimental. Keeps stage speed right when the phone can't hold 60 FPS, by running extra game "
                     + "ticks per drawn frame. Menus and cutscenes still slow down.");
+
+        section(d, "Language");
+        Ui.Group lang = group(d, false);
+        choice(lang, "Text language", new String[] {"English", "Deutsch", "Español", "Français", "Italiano", "日本語"},
+               () -> indexOf(GameSettings.TEXT_LANGUAGES, mS.textLanguage),
+               i -> mS.textLanguage = GameSettings.TEXT_LANGUAGES[i]);
+        footnote(d, "Voices can be English or Japanese: change them in the game's Options menu.");
     }
 
     private void buildTouch(Ui.Column t) {
