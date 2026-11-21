@@ -1,19 +1,20 @@
-"""The endless-chao-items tweak (runtime/tweaks/endless-chao-items.c): when a Chao has eaten a
-small animal or a Chaos Drive, through the Chao's eating state (0x00566DF0), the item and its
-partner are put back as they were before the meal (the body zeroes the word at +6, sets the dword
-at +0x0C to -1 and clears the link at +0x40 to use them up), so the item stays usable. With the
-tweak off (or in a replay) the lifted body runs alone.
+"""The endless-chao-items tweak (runtime/tweaks/endless-chao-items.c): a Chaos Drive or a small
+animal a Chao lets go of is not used up. The drive's held mode (0x00544F30, ESI = the task) is put
+back in mode 1 in place of mode 4, and the animal's (0x00548870, EAX = the task) gets its "eaten"
+dword at work + 0xF4 back; both get their garden save record back. With the tweak off (or in a
+replay) the lifted bodies run alone.
 
 The tweak's file is built with the pinned zig beside runtime/sa2_tweaks.c, as
-test_tweak_drives_to_minimals.py builds its tweak, and linked with a driver that stands in for the
-lifted body and the runtime's peek, poke and register accessors. The guest's memory is one flat
-buffer at 0x30000 holding what the wrap reads: the Chao's task and data, the item, its partner and
-that partner's item data.
+test_tweak_gold_beetle_stays.py builds its tweak, and linked with a driver that stands in for the
+lifted bodies and the runtime's peek, poke and register accessors. The guest's memory is one flat
+buffer at 0x30000: the item's task, its work (twp), its link entry, its save record and the stack.
 
-The stand-in `__real_sub_566df0` does what the body does in state 1: it moves the state word to 2
-and lets go of the item as the body does at 0x005674E5. Each driver step prints
-"<state> <item+6> <item+0xC> <item+0x40> <pair+6> <pair+0xC> <pair+0x40> <eax> <esp offset>", the
-fields as hex numbers.
+The stand-in bodies do what the game's do once the Chao has let go (0x0056D170 answers 0): the
+drive clears the record (the words at + 0 and + 2 to -1, the rest of its 0x14 bytes to 0) and
+[entry + 8], and sets mode 4, step 0; the animal sets + 0xF4 to 1, clears the record the same
+way, clears flags 0x240 of the word at work + 4, and sets mode 0, step 0. With `held` the Chao
+still holds the item and the bodies change nothing. Each driver step prints
+"<mode> <step> <[entry+8]> <the record's 0x14 bytes> <[twp+0xF4]> <[twp+4]> <ESP offset>".
 """
 from __future__ import annotations
 
@@ -29,13 +30,17 @@ RUNTIME = ROOT / "runtime"
 CC = ["-target", "x86_64-linux-musl", "-O2", "-Wall", "-Wextra", "-Werror", "-I", str(RUNTIME)]
 VARS = ("SA2_TWEAKS", "SA2_REPLAY_TICKS", "SA2_REPLAY_WORDS")
 ON = "sa2 tweaks: endless chao items (SA2_TWEAKS=endless-chao-items)"
-FIRST = "sa2 tweaks: endless chao items: a Chao ate item type {}; the item was kept usable"
+KEPT_DRIVE = "sa2 tweaks: endless chao items: a Chao ate a Chaos Drive; it was kept for another go"
+KEPT_ANIMAL = "sa2 tweaks: endless chao items: a Chao ate a small animal; it was kept for another go"
 
-# argv: switches, then steps. A step is `call` (the wrap) or `lifted` (the stand-in alone).
-#   type=N     the item's type byte
-#   state=S    the Chao's state word
-#   nopair     the item's partner does not point back at it
-#   notask     the stack argument points at memory that does not read
+# argv: switches, then steps. A step is `drive` or `animal` (the wrap), or `lifted-drive` or
+# `lifted-animal` (the stand-in alone). Switches hold for the steps after them:
+#   mode=N     the item's mode byte before the call (default: the holding mode, 3 or 2)
+#   eaten=N    the animal's dword at work + 0xF4 before the call (default 0)
+#   held       the Chao still holds the item: the body changes nothing
+#   norec      [entry + 8] is 0: the item has no save record
+#   notask     the task register points at memory that does not read
+#   rorec      the record does not write
 DRIVER = r"""
 #include <stdint.h>
 #include <stdio.h>
@@ -43,19 +48,17 @@ DRIVER = r"""
 #include <string.h>
 #include "cpu_state.h"
 #include "guest_memory.h"
-#include "sa2_call.h"
 
 #define BASE   0x30000u
-#define SIZE   0x9000u
-#define STACK  0x38000u                 /* the guest stack, inside the buffer */
+#define SIZE   0x8000u
 #define TASK   (BASE + 0x0000u)
-#define DATA   (BASE + 0x1000u)
-#define ITEM   (BASE + 0x2000u)
-#define PAIR   (BASE + 0x3000u)
-#define HELD   (BASE + 0x4000u)
-#define BODY   (BASE + 0x5000u)
+#define TWP    (BASE + 0x1000u)
+#define ENTRY  (BASE + 0x2000u)
+#define REC    (BASE + 0x3000u)
+#define STACK  (BASE + 0x7000u)
 static uint8_t mem[SIZE];
 static uint32_t gpr[SA2_GPR_COUNT];
+static int held, rorec;
 
 static void *where(uint32_t a, uint32_t n) {
     if (a >= BASE && a + n <= BASE + SIZE) return mem + (a - BASE);
@@ -69,78 +72,92 @@ int sa2_peek(uint32_t a, uint32_t n, void *out) {
 }
 int sa2_poke(uint32_t a, uint32_t n, const void *in) {
     void *p = where(a, n);
-    if (!p) return 1;
+    if (!p || (rorec && a < REC + 0x14u && a + n > REC)) return 1;
     memcpy(p, in, n);
     return SA2_OK;
 }
 static uint32_t rd32(uint32_t a) { uint32_t v = 0; sa2_peek(a, 4, &v); return v; }
-static uint32_t rd16(uint32_t a) { uint16_t v = 0; sa2_peek(a, 2, &v); return v; }
-static void wr32(uint32_t a, uint32_t v) { sa2_poke(a, 4, &v); }
-static void wr16(uint32_t a, uint16_t v) { sa2_poke(a, 2, &v); }
+static uint32_t rd8(uint32_t a) { uint8_t v = 0; sa2_peek(a, 1, &v); return v; }
+static void wr32(uint32_t a, uint32_t v) { uint8_t *p = where(a, 4); if (p) memcpy(p, &v, 4); }
+static void wr16(uint32_t a, uint16_t v) { uint8_t *p = where(a, 2); if (p) memcpy(p, &v, 2); }
+static void wr8(uint32_t a, uint8_t v) { uint8_t *p = where(a, 1); if (p) *p = v; }
 uint32_t sa2_rt_get_gpr(const void *state, int idx) { (void)state; return gpr[idx]; }
 void sa2_rt_set_gpr(void *state, int idx, uint32_t v) { (void)state; gpr[idx] = v; }
-void sa2_trap_note(const char *fmt, ...) { fprintf(stderr, "trap note: %s\n", fmt); }
-void sa2_trap_raise(uint32_t status, uint32_t exit_pc) {
-    fprintf(stderr, "trap %u at %#010x\n", status, exit_pc);
-    exit(7);
-}
 static void ret_(void) { gpr[SA2_EIP] = rd32(gpr[SA2_ESP]); gpr[SA2_ESP] += 4; }
 
-/* 0x005674E5 to 0x00567511: the item, and its partner when it points back, are let go. */
-static void let_go(uint32_t t, uint32_t other_back) {
-    (void)other_back;
-    wr16(t + 6, 0);
-    wr32(t + 0x40, 0);
-    wr32(t + 0x0C, 0xFFFFFFFFu);
+/* 0x00544FC7-0x0054500D and 0x00548948-0x0054898E: the save record cleared, [entry + 8] = 0. */
+static void clear_record(uint32_t task) {
+    uint32_t entry = rd32(task + 0x3C), rec = entry ? rd32(entry + 8) : 0;
+    if (!rec) return;
+    uint8_t *p = where(rec, 0x14);
+    if (!p) return;
+    memset(p, 0, 0x14);
+    memset(p, 0xFF, 4);
+    wr32(entry + 8, 0);
 }
-void *__real_sub_566df0(void *s, uint32_t pc, void *m) {
+void *__real_sub_544f30(void *s, uint32_t pc, void *m) {
     (void)s; (void)pc;
-    uint32_t task = rd32(gpr[SA2_ESP] + 4), data = rd32(task + 0x34);
-    if (rd16(data + 0x1B6) == 1) {
-        uint32_t item = rd32(task + 0x3C), pair = rd32(item + 0x40);
-        wr16(data + 0x1B6, 2);
-        let_go(item, 0);
-        if (pair && rd32(pair + 0x40) == item) let_go(pair, 0);
+    uint32_t task = gpr[SA2_ESI], twp = rd32(task + 0x34);
+    if (!held && where(twp, 2)) {
+        clear_record(task);
+        wr8(twp, 4);
+        wr8(twp + 1, 0);
     }
-    gpr[SA2_EAX] = 0x1234u;
+    gpr[SA2_EAX] = gpr[SA2_ECX] = gpr[SA2_EDX] = 0xDEADu;
     ret_();
     return m;
 }
-void *__wrap_sub_566df0(void *state, uint32_t pc, void *memory);
+void *__real_sub_548870(void *s, uint32_t pc, void *m) {
+    (void)s; (void)pc;
+    uint32_t task = gpr[SA2_EAX], twp = rd32(task + 0x34);
+    if (!held && where(twp, 0xF8)) {
+        wr32(twp + 0xF4, 1);
+        clear_record(task);
+        wr16(twp + 4, (uint16_t)(rd32(twp + 4) & 0xFDBFu));
+        wr8(twp, 0);
+        wr8(twp + 1, 0);
+    }
+    gpr[SA2_EAX] = gpr[SA2_ECX] = gpr[SA2_EDX] = 0xDEADu;
+    ret_();
+    return m;
+}
+void *__wrap_sub_544f30(void *state, uint32_t pc, void *memory);
+void *__wrap_sub_548870(void *state, uint32_t pc, void *memory);
 
 int main(int argc, char **argv) {
-    int token, direct = 0;
-    uint32_t type = 0x16, esp = STACK, pair_back = 1;
-    uint16_t state = 1;
+    int token, mode = -1, norec = 0, notask = 0;
+    uint32_t eaten = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
-        if (!strncmp(a, "type=", 5)) { type = (uint32_t)strtoul(a + 5, NULL, 0); continue; }
-        if (!strncmp(a, "state=", 6)) { state = (uint16_t)strtoul(a + 6, NULL, 0); continue; }
-        if (!strcmp(a, "nopair")) { pair_back = 0; continue; }
-        if (!strcmp(a, "notask")) { esp = 0x90000u; continue; }
-        if (!strcmp(a, "lifted")) { direct = 1; continue; }
+        if (!strncmp(a, "mode=", 5)) { mode = (int)strtol(a + 5, NULL, 0); continue; }
+        if (!strncmp(a, "eaten=", 6)) { eaten = (uint32_t)strtoul(a + 6, NULL, 0); continue; }
+        if (!strcmp(a, "held")) { held = 1; continue; }
+        if (!strcmp(a, "norec")) { norec = 1; continue; }
+        if (!strcmp(a, "notask")) { notask = 1; continue; }
+        if (!strcmp(a, "rorec")) { rorec = 1; continue; }
+        const int drive = strstr(a, "drive") != NULL, lifted = !strncmp(a, "lifted", 6);
         memset(mem, 0, sizeof mem);
-        wr32(TASK + 0x34, DATA);
-        wr32(TASK + 0x3C, ITEM);
-        wr32(ITEM + 0x40, PAIR);
-        wr16(ITEM + 6, 0x77);
-        wr32(ITEM + 0x0C, 0x1234);
-        wr32(PAIR + 0x40, pair_back ? ITEM : 0);
-        wr16(PAIR + 6, 0x55);
-        wr32(PAIR + 0x0C, 0x4321);
-        wr32(PAIR + 0x3C, HELD);
-        wr32(HELD + 0x34, BODY);
-        mem[BODY - BASE + 3] = (uint8_t)type;
-        wr16(DATA + 0x1B6, state);
-        wr32(STACK + 4, TASK);
-        gpr[SA2_ESP] = esp;
-        gpr[SA2_EDX] = 0x11111111u;
+        wr32(TASK + 0x34, TWP);
+        wr32(TASK + 0x3C, ENTRY);
+        wr32(ENTRY + 8, norec ? 0 : REC);
+        for (uint32_t k = 0; k < 0x14; k++) wr8(REC + k, (uint8_t)(0x40 + k));
+        wr8(TWP, (uint8_t)(mode >= 0 ? mode : drive ? 3 : 2));
+        wr8(TWP + 1, 2);
+        wr16(TWP + 4, 0x0261);
+        wr32(TWP + 0xF4, eaten);
+        wr32(STACK, 0x005450F8u);
+        const uint32_t task = notask ? 0x90000u : TASK;
+        gpr[SA2_ESP] = STACK;
+        gpr[SA2_ESI] = drive ? task : 0x33333333u;
+        gpr[SA2_EAX] = drive ? 0x44444444u : task;
         gpr[SA2_EBX] = 0x22222222u;
-        void *ret = (direct ? __real_sub_566df0 : __wrap_sub_566df0)(&token, 0x00566DF0u, &token);
-        if (ret != &token || gpr[SA2_EDX] != 0x11111111u || gpr[SA2_EBX] != 0x22222222u) return 3;
-        printf("%x %x %x %x %x %x %x %#x %d\n", rd16(DATA + 0x1B6), rd16(ITEM + 6), rd32(ITEM + 0x0C),
-               rd32(ITEM + 0x40), rd16(PAIR + 6), rd32(PAIR + 0x0C), rd32(PAIR + 0x40), gpr[SA2_EAX],
-               (int)(gpr[SA2_ESP] - esp));
+        void *ret = drive ? (lifted ? __real_sub_544f30 : __wrap_sub_544f30)(&token, 0x00544F30u, &token)
+                          : (lifted ? __real_sub_548870 : __wrap_sub_548870)(&token, 0x00548870u, &token);
+        if (ret != &token || gpr[SA2_EBX] != 0x22222222u || gpr[SA2_EIP] != 0x005450F8u) return 3;
+        if (drive && gpr[SA2_ESI] != task) return 4;
+        printf("%x %x %x ", rd8(TWP), rd8(TWP + 1), rd32(ENTRY + 8));
+        for (uint32_t k = 0; k < 0x14; k++) printf("%02x", rd8(REC + k));
+        printf(" %x %x %d\n", rd32(TWP + 0xF4), rd32(TWP + 4) & 0xFFFFu, (int)(gpr[SA2_ESP] - STACK));
     }
     return 0;
 }
@@ -176,66 +193,91 @@ def run(exe: Path, *steps: str, **env: str) -> tuple[list[str], str]:
 
 
 ENDLESS = {"SA2_TWEAKS": "endless-chao-items"}
-# state 2, the item's word 0, field -1, link 0, the partner's the same, the body's EAX, ESP past the RET.
-LIFTED = "2 0 ffffffff 0 0 ffffffff 0 0x1234 4"
-# state 2 and both tasks as they were before the meal: item word 0x77, field 0x1234, link PAIR
-# (0x33000); partner word 0x55, field 0x4321, link ITEM (0x32000).
-KEPT = "2 77 1234 33000 55 4321 32000 0x1234 4"
+SAVED = "404142434445464748494a4b4c4d4e4f50515253"            # the record before the call
+CLEARED = "ffffffff" + "00" * 16                                 # as the bodies leave it
+# Each line: mode, step, [entry + 8], the record, [twp + 0xF4], [twp + 4], ESP past the RET.
+DRIVE_USED = f"4 0 0 {CLEARED} 0 261 4"
+DRIVE_KEPT = f"1 0 33000 {SAVED} 0 261 4"
+ANIMAL_USED = f"0 0 0 {CLEARED} 1 21 4"
+ANIMAL_KEPT = f"0 0 33000 {SAVED} 0 21 4"
 
 
 @pytest.mark.parametrize("env", [{}, {"SA2_TWEAKS": ""}, {"SA2_TWEAKS": "no-event-bars"}])
 def test_off_is_the_lifted_body(exe, env):
-    out, err = run(exe, "call", **env)
-    assert out == [LIFTED]
-    assert run(exe, "lifted", "call")[0] == [LIFTED]
+    out, err = run(exe, "drive", "animal", **env)
+    assert out == [DRIVE_USED, ANIMAL_USED]
+    assert run(exe, "lifted-drive", "lifted-animal")[0] == [DRIVE_USED, ANIMAL_USED]
     assert "endless" not in err
 
 
-def test_on_the_item_and_its_partner_are_as_before_the_meal(exe):
-    """The body's EAX, the state and the register state are the body's own; only the fields it
-    used the item up with are put back."""
-    out, err = run(exe, "type=0x16", "call", **ENDLESS)
-    assert out == [KEPT]
-    assert err.splitlines() == [ON, FIRST.format(22)]
+def test_on_a_drive_let_go_lies_free_with_its_record(exe):
+    """Mode 1, step 0 (its set-up runs again), and the record back in the entry as it was."""
+    out, err = run(exe, "drive", **ENDLESS)
+    assert out == [DRIVE_KEPT]
+    assert err.splitlines() == [ON, KEPT_DRIVE]
 
 
-@pytest.mark.parametrize("kind", [0x00, 0x14, 0x15, 0x18])
-def test_every_animal_and_drive_type_is_kept(exe, kind):
-    out, _ = run(exe, f"type={kind}", "call", **ENDLESS)
-    assert out == [KEPT]
+def test_on_an_animal_let_go_is_not_eaten_and_keeps_its_record(exe):
+    """Mode 0 and the flags at work + 4 are the body's; + 0xF4 and the record are as before."""
+    out, err = run(exe, "animal", **ENDLESS)
+    assert out == [ANIMAL_KEPT]
+    assert err.splitlines() == [ON, KEPT_ANIMAL]
 
 
-def test_it_is_said_once(exe):
-    _, err = run(exe, "call", "call", **ENDLESS)
-    assert err.splitlines() == [ON, FIRST.format(22)]
+def test_an_animal_already_marked_eaten_keeps_its_old_mark(exe):
+    out, _ = run(exe, "eaten=1", "animal", **ENDLESS)
+    assert out == [f"0 0 33000 {SAVED} 1 21 4"]
 
 
-def test_a_type_that_is_no_animal_or_drive_is_left_alone(exe):
-    out, _ = run(exe, "type=0x19", "call", "type=0xFF", "call", **ENDLESS)
-    assert out == [LIFTED, LIFTED]
+def test_the_first_item_kept_is_said_once(exe):
+    out, err = run(exe, "drive", "animal", "drive", **ENDLESS)
+    assert out == [DRIVE_KEPT, ANIMAL_KEPT, DRIVE_KEPT]
+    assert err.splitlines() == [ON, KEPT_DRIVE]
 
 
-@pytest.mark.parametrize("state", [0, 2, 3])
-def test_a_chao_not_in_state_1_keeps_nothing(exe, state):
-    """Outside state 1 the body does not let go of the item, so there is nothing to put back."""
-    out, _ = run(exe, f"state={state}", "call", **ENDLESS)
-    assert out == [f"{state} 77 1234 33000 55 4321 32000 0x1234 4"]
+def test_an_item_with_no_record_is_kept_without_one(exe):
+    out, _ = run(exe, "norec", "drive", "animal", **ENDLESS)
+    assert out == [f"1 0 0 {SAVED} 0 261 4", f"0 0 0 {SAVED} 0 21 4"]
 
 
-def test_a_partner_that_does_not_point_back_means_no_meal(exe):
-    """The body lets go of the item alone and the wrap sees no meal, so the item stays let go."""
-    out, _ = run(exe, "nopair", "call", **ENDLESS)
-    assert out == ["2 0 ffffffff 0 55 4321 0 0x1234 4"]
+def test_an_item_the_chao_still_holds_is_untouched(exe):
+    out, err = run(exe, "held", "drive", "animal", **ENDLESS)
+    assert out == [f"3 2 33000 {SAVED} 0 261 4", f"2 2 33000 {SAVED} 0 261 4"]
+    assert err.splitlines() == [ON]
 
 
-def test_an_unreadable_stack_argument_runs_the_body_alone(exe):
-    out, _ = run(exe, "notask", "call", **ENDLESS)
-    assert out == ["1 77 1234 33000 55 4321 32000 0x1234 4"]   # the body ran alone and the state stayed 1
+@pytest.mark.parametrize("mode", [0, 1, 4])
+def test_a_drive_not_in_its_held_mode_is_the_body_alone(exe, mode):
+    out, err = run(exe, f"mode={mode}", "drive", **ENDLESS)
+    assert out == [DRIVE_USED]
+    assert err.splitlines() == [ON]
+
+
+@pytest.mark.parametrize("mode", [0, 1, 3])
+def test_an_animal_not_in_its_held_mode_is_the_body_alone(exe, mode):
+    out, err = run(exe, f"mode={mode}", "animal", **ENDLESS)
+    assert out == [ANIMAL_USED]
+    assert err.splitlines() == [ON]
+
+
+def test_an_unreadable_task_is_said_once_and_left_to_the_body(exe):
+    out, err = run(exe, "notask", "drive", "animal", **ENDLESS)
+    assert out == [f"3 2 33000 {SAVED} 0 261 4", f"2 2 33000 {SAVED} 0 261 4"]
+    assert err.splitlines() == [ON, "sa2 tweaks: endless chao items: a Chaos Drive's work does not "
+                                "read (task 0x00090000), so it is used up as usual"]
+
+
+def test_a_record_that_does_not_write_is_said_once_and_left_used_up(exe):
+    """The record is the first write, so nothing is written: the item is as the body left it."""
+    out, err = run(exe, "rorec", "drive", "animal", **ENDLESS)
+    assert out == [DRIVE_USED, ANIMAL_USED]
+    assert err.splitlines() == [ON, "sa2 tweaks: endless chao items: a Chaos Drive's work does not "
+                                "write (task 0x00030000), so it is used up as usual"]
 
 
 @pytest.mark.parametrize("replay", ["SA2_REPLAY_TICKS", "SA2_REPLAY_WORDS"])
 def test_ignored_in_a_replay(exe, replay):
-    out, err = run(exe, "call", **ENDLESS, **{replay: "/dev/null"})
-    assert out == [LIFTED]
+    out, err = run(exe, "drive", "animal", **ENDLESS, **{replay: "/dev/null"})
+    assert out == [DRIVE_USED, ANIMAL_USED]
     assert err == ("sa2 tweaks: SA2_TWEAKS=endless-chao-items ignored in a replay (SA2_REPLAY_TICKS "
                    "or SA2_REPLAY_WORDS is set)\n")
